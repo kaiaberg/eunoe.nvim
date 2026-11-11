@@ -114,7 +114,7 @@ function M.open(opts)
     end
     local view = require("eunoe.view")
     local reader = require("eunoe.readers").get(s.reader) or {}
-    local icons = o.icons
+    local icons = o.heading.icons
     view.show(turns, {
       name = ("eunoe://%s/%s"):format(s.reader, s.id),
       total = total,
@@ -122,8 +122,10 @@ function M.open(opts)
       wrap = o.view.wrap,
       width = o.view.width,
       focus = o.view.focus,
+      bar = o.view.bar,
+      heading = o.heading,
       keys = o.keys,
-      agent = type(reader.heading) == "string" and reader.heading or nil,
+      agent = type(reader.speaker) == "string" and reader.speaker or nil,
       speakers = {
         prompt = { hl = "EunoeUser", icon = icons and icons.user },
         reply = {

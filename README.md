@@ -47,7 +47,7 @@ nothing anywhere and never changes the transcript.
 - `ps`, to find the agent Neovim was started from (on macOS and Linux it's
   always there)
 - Optional: a [Nerd Font](https://www.nerdfonts.com) for the icons in the
-  headings (or `icons = false`)
+  headings (or `heading = { icons = false }`)
 
 ## Installation
 
@@ -87,23 +87,29 @@ Press `Ctrl+G` in Claude Code and run `:Eunoe`. A split opens on the
 right with the last 10 turns, newest at the bottom, the cursor on the
 latest reply:
 
-```markdown
-# 6 · You
+```
+▎ 6 · You                                                     09:30
+▎ Can you make the parser skip system reminders?
 
-Can you make the parser skip system reminders?
-
-# 6 · Claude
-
-Yes. Three changes:
-
-1. …
+▎ 6 · Claude
+▎ Yes. Three changes:
+▎
+▎ 1. …
 ```
 
 Turns are numbered, so "turn 6, point 2" means the same thing to you and
-the agent. On screen, each heading also has an icon and a
-[color](#colors) for its speaker: blue for you, orange for Claude. They
-are drawn on top of the text, so the buffer is plain read-only Markdown:
-search it, yank from it, and use your Markdown plugins.
+the agent. Each heading has an icon (left out in these examples) and a
+[color](#colors) for its speaker (blue for you, orange for Claude), a bar in that color runs
+along each message, and your prompts show their time. What the headings
+show is [configurable](#configuration).
+
+The icons, the time and the bar are drawn on top of the text: the
+buffer line is just `6 · You`, so `/6 ·` finds turn 6 and yanking copies
+no icons. The headings aren't Markdown `#` headings, so Markdown
+renderers like
+[render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim)
+leave them alone. The rest is plain read-only Markdown: search it, yank
+from it, and use your Markdown plugins.
 
 | Key | Does |
 |---|---|
@@ -145,8 +151,8 @@ rest sits in a closed fold:
 The newest reply stays open, since it's usually the one you're answering
 (`zc` closes it). Code blocks are never cut in the middle.
 
-Lines longer than 80 characters are broken at spaces, so long paragraphs
-fold too. Code blocks and tables stay as they are, list items keep their
+Lines longer than 80 characters (or than the window is wide) are broken
+at spaces, so long paragraphs fold too. Code blocks and tables stay as they are, list items keep their
 indent, and quotes keep their `>`. Yanking with `y` copies these line
 breaks; quoting doesn't.
 
@@ -161,10 +167,13 @@ it to skim a long session or find a message, then open it with `o` or
 `za`:
 
 ```
-# 6 · You  Can you make the parser skip system reminders?
-# 6 · Claude  Yes. Three changes: skip the tags, keep the order, and d…
-# 7 · You  Why drop empty turns?
+6 · You     Can you make the parser skip system reminders?
+6 · Claude  Yes. Three changes: skip the tags, keep the order, and…
+7 · You     Why drop empty turns?
 ```
+
+Numbers and names are padded to the same width so the messages line up
+(`heading.pad`).
 
 Each message is a fold, so the split has three modes, and they're just
 fold levels:
@@ -239,6 +248,9 @@ require("eunoe").setup({
     -- tables), so long paragraphs can be truncated too. false keeps
     -- lines as they are.
     wrap = 80,
+    -- A bar in the sign column next to every line of a message, in the
+    -- speaker's color. false: no bar and no sign column.
+    bar = "▎",
   },
   -- Keys in the eunoe split (buffer-local). false leaves a key unmapped.
   keys = {
@@ -261,20 +273,35 @@ require("eunoe").setup({
     -- Leave the newest reply unfolded.
     open_latest = true,
   },
-  -- Icons before the names in the headings (Nerd Font glyphs). false
-  -- turns them off, e.g. without a Nerd Font.
-  icons = {
-    user = "\u{f007}", -- nf-fa-user
-    -- nil: the agent's own icon (Claude Code: nf-cod-claude), or
-    -- nf-md-robot for agents without one.
-    agent = nil,
+  -- What the message headings show: "6 · <icon> Claude", the time on
+  -- the right.
+  heading = {
+    -- The turn number.
+    number = true,
+    -- The · after the number.
+    separator = true,
+    -- Icons before the names (Nerd Font glyphs). false turns them off,
+    -- e.g. without a Nerd Font.
+    icons = {
+      user = "\u{f007}", -- nf-fa-user
+      -- nil: the agent's own icon (Claude Code: nf-cod-claude), or
+      -- nf-md-robot for agents without one.
+      agent = nil,
+    },
+    -- The speaker's name: "You", "Claude".
+    names = true,
+    -- The time of each prompt, at the right end of its heading.
+    time = true,
+    -- In one-line mode, pad numbers and names to the same width, so the
+    -- messages line up.
+    pad = true,
   },
 })
 ```
 
 The Claude icon (nf-cod-claude) is only in recent Nerd Fonts releases. If
 it shows as a box while the other icons work, update the font, or use
-the robot instead: `icons = { agent = "\u{f06a9}" }`.
+the robot instead: `heading = { icons = { agent = "\u{f06a9}" } }`.
 
 `setup()` warns about unknown options and wrong values, and
 `:checkhealth eunoe` lists them again.
@@ -289,6 +316,7 @@ set them, and so can you (after `:colorscheme`):
 | `EunoeUser` | Your prompts' headings: blue |
 | `EunoeAgent` | Agents without a color of their own: linked to `Title` |
 | `EunoeAgentClaude` | Claude Code's replies: Claude's terracotta orange |
+| `EunoeTime` | The time on the prompt headings: linked to `Comment` |
 | `EunoeOneline` | The text in one-line mode: linked to `Normal` |
 | `EunoeFolded` | Closed folds in the split (it maps `Folded` to this): linked to `Normal` |
 | `EunoeTruncated` | The "… 1,615 more characters" line: linked to `Comment` |
@@ -351,7 +379,7 @@ require("eunoe").register_reader("myagent", {
   read = function(transcript, cb)
     cb({ { n = 1, prompt = "…", reply = "…" } })
   end,
-  -- Optional: label = "My Agent" (for messages), heading = "Mine" (name
+  -- Optional: label = "My Agent" (for messages), speaker = "Mine" (name
   -- in the reply headings), icon = "…", color = "#rrggbb" (its
   -- EunoeAgentMyagent group), tested_version = "1.2.3",
   -- health = function(health) … end (extra checks for :checkhealth).

@@ -62,21 +62,26 @@ format looks changed.
 
 |:Eunoe| opens a vertical split on the right with the last 10 turns
 (|eunoe-config-turns|), newest at the bottom, the cursor on the latest
-reply. Each turn has two headings: >markdown
-  # 6 · You
+reply. Each message has a heading line: >
+  ▎ 6 · You                                                   09:30
+  ▎ Can you make the parser skip system reminders?
 
-  Can you make the parser skip system reminders?
-
-  # 6 · Claude
-
-  Yes. Three changes: …
+  ▎ 6 · Claude
+  ▎ Yes. Three changes: …
 <
 The numbers let you and the agent mean the same turn ("turn 6, point 2").
 The reply heading names the agent ("Agent" if its reader gives no name).
-On screen, each heading has an icon before the name and its speaker's
-color (|eunoe-config-icons|, |eunoe-highlights|). Both are drawn on top of
-the text, so searching for `# 6` and yanking see plain headings.
-The buffer is read-only Markdown: search it, yank from it, and use your
+Each heading has an icon before the name (left out in these examples)
+and its speaker's color (|eunoe-highlights|), the prompt's heading shows
+the time on the right, and a bar `▎` in the speaker's color runs along
+each message in the sign column (|eunoe-config-view|). What the headings
+show is configurable (|eunoe-config-heading|).
+
+The icons, the time and the bar are drawn on top of the text. The buffer
+line is just `6 · You`, so search for `6 ·` to find turn 6, and yanking
+copies no icons. The headings aren't Markdown `#` headings: Markdown
+renderers such as render-markdown.nvim would restyle those. The buffer
+is otherwise read-only Markdown: search it, yank from it, and use your
 Markdown plugins. Its name is `eunoe://<reader>/<session id>`.
 
 Before the first prompt of a session there is no transcript yet, and the
@@ -122,11 +127,11 @@ The newest reply stays open, since it is usually the one you are
 answering; its fold still exists, so |zc| closes it.
 
                                                                   *eunoe-wrap*
-Lines longer than 80 characters (|eunoe-config-wrap|) are broken at spaces
-into several buffer lines, so long paragraphs can fold too. Code blocks and
-tables stay as they are, list items indent their continuation lines, and
-quotes repeat `>`. Yanking with |y| copies these line breaks; quoting
-(|eunoe-quote|) does not.
+Lines longer than 80 characters, or wider than the window
+(|eunoe-config-wrap|), are broken at spaces into several buffer lines, so
+long paragraphs can fold too. Code blocks and tables stay as they are, list
+items indent their continuation lines, and quotes repeat `>`. Yanking with
+|y| copies these line breaks; quoting (|eunoe-quote|) does not.
 
                                                                *eunoe-oneline*
 One line per message ~
@@ -143,8 +148,8 @@ levels ('foldlevel'):
 cursor stays on its message. In one-line mode each message shows its
 heading and the start of its text, up to |eunoe-config-wrap| characters
 or the window width: >
-  # 6 · You  Can you make the parser skip system reminders?
-  # 6 · Claude  Yes. Three changes: skip the tags, keep the order, and d…
+  6 · You     Can you make the parser skip system reminders?
+  6 · Claude  Yes. Three changes: skip the tags, keep the order, and…
 <
 Use it to skim a long session or find a message, then press `o` or |za|
 on it. Searching with |/| opens the messages that match ('foldopen').
@@ -210,7 +215,7 @@ eunoe.setup({opts})
 The defaults: >lua
   require("eunoe").setup({
     turns = 10,
-    view = { width = 0.4, focus = true, wrap = 80 },
+    view = { width = 0.4, focus = true, wrap = 80, bar = "▎" },
     keys = {
       close = "q",
       next_turn = "]]",
@@ -225,9 +230,16 @@ The defaults: >lua
       reply = nil,
       open_latest = true,
     },
-    icons = {
-      user = "\u{f007}", -- nf-fa-user
-      agent = nil,
+    heading = {
+      number = true,
+      separator = true,
+      icons = {
+        user = "\u{f007}", -- nf-fa-user
+        agent = nil,
+      },
+      names = true,
+      time = true,
+      pad = true,
     },
   })
 <
@@ -244,10 +256,16 @@ view.width ~
 view.focus ~
     Move the cursor into the split when it opens.
 
+view.bar ~
+    A character (1 or 2 columns) in the sign column next to every line of
+    a message, in the speaker's color. `false` for none, and no sign
+    column.
+
                                                            *eunoe-config-wrap*
 view.wrap ~
     Break lines longer than this many characters into several lines
-    (|eunoe-wrap|). `false` keeps lines as they are. At least 20.
+    (|eunoe-wrap|), or at the window's width if it is narrower. `false`
+    keeps lines as they are. At least 20.
 
                                                            *eunoe-config-keys*
 keys ~
@@ -265,12 +283,31 @@ truncate ~
     `reply`         Separate limit for replies; `nil` uses `chars`.
     `open_latest`   Leave the newest reply unfolded.
 
+                                                        *eunoe-config-heading*
+heading ~
+    What the message headings show, all on by default: >
+      6 · You                                                    09:30
+<
+    `number`      The turn number.
+    `separator`   The `·` after the number. Left out when nothing
+                  follows the number.
+    `icons`       Icons before the names, see below. `false` for none.
+    `names`       The speaker's name: "You", "Claude".
+    `time`        The time of each prompt, at the right end of its
+                  heading: `09:30` today, `Nov 10 09:30` before. Local
+                  time.
+    `pad`         In one-line mode (|eunoe-oneline|), pad the numbers and
+                  names to the same width, so the messages line up: >
+                     9 · You     commit and push
+                     9 · Claude  I committed and pushed both repos…
+                    10 · You     tag v0.1.0
+<
                                                           *eunoe-config-icons*
-icons ~
-    Icons before the names in the headings. They are Nerd Font glyphs
+heading.icons ~
+    Icons before the names. They are Nerd Font glyphs
     (https://www.nerdfonts.com); without a Nerd Font they show as boxes,
-    so set `icons = false`. Neovim can't tell which font the terminal
-    uses.
+    so set `heading = { icons = false }`. Neovim can't tell which font
+    the terminal uses.
 
     `user`    Your prompts. Default: nf-fa-user.
     `agent`   The agent's replies, for every agent. `nil` uses the agent's
@@ -279,7 +316,7 @@ icons ~
 
     nf-cod-claude is only in recent Nerd Fonts releases. If the Claude
     icon shows as a box while the others work, update the font or use
-    the robot: `icons = { agent = "\u{f06a9}" }`.
+    the robot: `heading = { icons = { agent = "\u{f06a9}" } }`.
 
 ==============================================================================
 10. LUA API                                                        *eunoe-api*
@@ -349,7 +386,7 @@ read({transcript}, {cb}) ~
 
 Optional fields:
 - `label`: a display name, for messages and |:checkhealth|.
-- `heading`: the agent's name in the reply headings ("Agent" without it).
+- `speaker`: the agent's name in the reply headings ("Agent" without it).
 - `icon`: the icon before that name (|eunoe-config-icons|).
 - `color`: a `#rrggbb` color for the reply headings (|eunoe-highlights|).
 - `tested_version`: the agent version the reader was last checked
@@ -394,6 +431,12 @@ EunoeAgent{Name}        One group per agent, named after its reader:
                         `EunoeAgentClaude` for Claude Code (default: its
                         terracotta orange). Without a reader `color`, it
                         links to |EunoeAgent|.
+
+                                                                   *EunoeTime*
+EunoeTime               The time on the prompt headings. Default: linked
+                        to `Comment`.
+
+The bar next to each message uses the heading's group.
 
                                                                 *EunoeOneline*
 EunoeOneline            The start of a message in one-line mode

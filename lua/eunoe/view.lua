@@ -12,9 +12,11 @@ local M = {}
 ---@field line integer 1-based line of the heading.
 ---@field turn integer Turn number.
 ---@field role "prompt"|"reply"
----@field name_col integer 0-based byte column where the speaker's name starts.
+---@field icon_col integer? 0-based byte column of the speaker's icon (virtual text).
+---@field icon_text string? The icon's virtual text, with its space.
 ---@field last integer Last line of the message fold (the blank line after the message included).
 ---@field section integer Index into `sections`.
+---@field time string? ISO timestamp shown on the heading (the prompt's, or the reply's without a prompt).
 
 ---@class eunoe.Rendered
 ---@field lines string[]
@@ -158,25 +160,112 @@ function M.wrap(lines, width)
   return out, info
 end
 
+---@class eunoe.HeadingOpts
+---@field number boolean? The turn number (default true).
+---@field separator boolean? `·` after the number (default true).
+---@field names boolean? The speaker's name (default true).
+---@field time boolean? The time, right-aligned (default true).
+---@field pad boolean? Pad numbers and names in one-line mode, so messages line up (default true).
+
+--- The pieces of a heading, in order: number, separator, icon, name.
+--- Missing ones are left out; the separator only stands between the
+--- number and something after it.
+---@param n integer
+---@param name string?
+---@param icon string|false?
+---@param h eunoe.HeadingOpts
+---@param pad { number: integer?, name: integer? }? Widths to pad to.
+---@return { text: string, icon: boolean? }[]
+function M.heading_pieces(n, name, icon, h, pad)
+  pad = pad or {}
+  local pieces = {}
+  if h.number ~= false then
+    local num = tostring(n)
+    pieces[1] = { text = string.rep(" ", (pad.number or 0) - #num) .. num }
+  end
+  local has_icon = type(icon) == "string" and icon ~= ""
+  local has_name = h.names ~= false and type(name) == "string" and name ~= ""
+  if h.separator ~= false and #pieces > 0 and (has_icon or has_name) then
+    pieces[#pieces + 1] = { text = "·" }
+  end
+  if has_icon then
+    pieces[#pieces + 1] = { text = icon, icon = true }
+  end
+  if has_name then
+    pieces[#pieces + 1] = { text = name .. string.rep(" ", (pad.name or 0) - width_of(name)) }
+  end
+  return pieces
+end
+
+--- A heading's buffer line, without the icon, which is drawn as virtual
+--- text: where it goes and its text (with the space that separates it).
+---@return string line, integer? icon_col, string? icon_text
+function M.heading_line(n, name, icon, h)
+  local before, after, icon_piece = {}, {}, nil
+  for _, p in ipairs(M.heading_pieces(n, name, icon, h)) do
+    if p.icon then
+      icon_piece = p.text
+    elseif icon_piece then
+      after[#after + 1] = p.text
+    else
+      before[#before + 1] = p.text
+    end
+  end
+  local head, tail = table.concat(before, " "), table.concat(after, " ")
+  local line = head .. ((head ~= "" and tail ~= "") and " " or "") .. tail
+  if not icon_piece then
+    return line
+  end
+  if tail ~= "" then
+    return line, #line - #tail, icon_piece .. " "
+  end
+  return line, #line, (line ~= "" and " " or "") .. icon_piece
+end
+
+--- Whether a message's first line would merge with the heading line
+--- above it into other Markdown: `---`/`===` would make the heading a
+--- setext heading, indented code and ordered lists not starting at 1
+--- would continue its paragraph. Those messages get a blank line after
+--- the heading.
+---@param first string?
+---@return boolean
+local function merges(first)
+  if not first then
+    return false
+  end
+  return first:match("^ ? ? ?%-+%s*$") ~= nil
+    or first:match("^ ? ? ?=+%s*$") ~= nil
+    or first:match("^    ") ~= nil
+    or first:match("^\t") ~= nil
+    or (first:match("^ ? ? ?(%d+)[.)]%s") or "1") ~= "1"
+end
+
 --- Render turns into lines, with folds for long sections.
 ---@param turns eunoe.Turn[]
----@param opts { truncate: table|false, total: integer?, wrap: integer|false|nil, agent: string? }
+---@param opts { truncate: table|false, total: integer?, wrap: integer|false|nil, agent: string?, heading: eunoe.HeadingOpts?, icons: { prompt: string|false?, reply: string|false? }? }
 ---@return eunoe.Rendered
 function M.render(turns, opts)
-  local out = { lines = {}, folds = {}, headings = {}, sections = {}, line_info = {} }
+  local hopts = opts.heading or {}
+  local icons = opts.icons or {}
+  local names = { prompt = "You", reply = opts.agent or "Agent" }
+  local out = { lines = {}, folds = {}, headings = {}, sections = {}, line_info = {}, names = names, max_n = 0 }
   local lines = out.lines
   local trunc = opts.truncate
   local function add(l)
     lines[#lines + 1] = l
   end
-  local function section(turn, role, text, latest)
-    local prefix = ("# %d · "):format(turn.n)
-    add(prefix .. (role == "prompt" and "You" or opts.agent or "Agent"))
-    local heading = { line = #lines, turn = turn.n, role = role, name_col = #prefix }
+  local function section(turn, role, text, latest, time)
+    local line, icon_col, icon_text = M.heading_line(turn.n, names[role], icons[role], hopts)
+    add(line)
+    local heading =
+      { line = #lines, turn = turn.n, role = role, icon_col = icon_col, icon_text = icon_text, time = time }
     out.headings[#out.headings + 1] = heading
-    add("")
+    out.max_n = math.max(out.max_n, turn.n)
     local source = vim.split(text, "\n", { plain = true })
     local body, info = M.wrap(source, opts.wrap)
+    if merges(body[1]) then
+      add("")
+    end
     local first = #lines + 1
     out.sections[#out.sections + 1] =
       { turn = turn.n, role = role, first = first, last = first + #body - 1, text = text, lines = source }
@@ -209,13 +298,13 @@ function M.render(turns, opts)
   for i, turn in ipairs(turns) do
     local latest = i == #turns
     if turn.prompt then
-      section(turn, "prompt", turn.prompt)
+      section(turn, "prompt", turn.prompt, false, turn.time)
     end
     local reply = turn.reply or "_(no reply)_"
     if turn.interrupted then
       reply = reply .. "\n\n_(interrupted)_"
     end
-    section(turn, "reply", reply, latest)
+    section(turn, "reply", reply, latest, not turn.prompt and turn.time or nil)
   end
   -- Drop the trailing blank line.
   if lines[#lines] == "" then
@@ -277,17 +366,26 @@ end
 ---@return [string, string][]
 function M.message_line(st, hd, width)
   local sp = st.speakers[hd.role]
-  local line = st.rendered.lines[hd.line]
+  local h = st.heading or {}
+  local r = st.rendered
+  local pad
+  if h.pad ~= false then
+    pad = { number = #tostring(r.max_n), name = math.max(width_of(r.names.prompt), width_of(r.names.reply)) }
+  end
+  local pieces = vim.tbl_map(function(p)
+    return p.text
+  end, M.heading_pieces(hd.turn, r.names[hd.role], sp.icon, h, pad))
   local chunks, used = {}, 0
   local function push(text, hl)
     chunks[#chunks + 1] = { text, hl }
     used = used + width_of(text)
   end
-  push(line:sub(1, hd.name_col), sp.hl)
-  if type(sp.icon) == "string" and sp.icon ~= "" then
-    push(sp.icon .. " ", sp.hl)
+  push(table.concat(pieces, " "), sp.hl)
+  -- Leave room for the time, drawn right-aligned over the row.
+  local clock = h.time ~= false and M.clock(hd.time)
+  if clock then
+    width = width - width_of(clock) - 1
   end
-  push(line:sub(hd.name_col + 1), sp.hl)
   local text = M.flatten(st.rendered.sections[hd.section].lines)
   if text ~= "" and width - used > 4 then
     push("  " .. clip(text, width - used - 2), "EunoeOneline")
@@ -438,25 +536,78 @@ M.ROBOT = "\u{f06a9}"
 ---@field icon string|false? Icon before the name; false or nil for none.
 ---@field hl string Highlight group of the heading line.
 
---- Color the headings and put the speakers' icons before their names.
+--- Seconds since the epoch for an ISO 8601 UTC timestamp
+--- (`2026-11-11T09:30:00.123Z`), or nil.
+---@param iso string?
+---@return integer?
+function M.epoch(iso)
+  local y, mo, d, hh, mm, ss = tostring(iso):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+  if not y then
+    return nil
+  end
+  -- os.time() reads the table as local time; shift by the UTC offset at
+  -- that moment.
+  local t = os.time({ year = y, month = mo, day = d, hour = hh, min = mm, sec = ss, isdst = false })
+  local utc = os.date("!*t", t)
+  utc.isdst = false
+  return t + (t - os.time(utc))
+end
+
+--- A timestamp as local time: `09:30` today, `Nov 10 09:30` before.
+---@param iso string?
+---@param now integer? Seconds since the epoch (for tests).
+---@return string?
+function M.clock(iso, now)
+  local t = M.epoch(iso)
+  if not t then
+    return nil
+  end
+  if os.date("%Y-%m-%d", t) == os.date("%Y-%m-%d", now or os.time()) then
+    return os.date("%H:%M", t)
+  end
+  return os.date("%b %d %H:%M", t)
+end
+
+---@class eunoe.Decorations
+---@field bar string|false? Character in the sign column next to each message.
+---@field time boolean? The time on the heading lines.
+
+--- Color the headings and put the speakers' icons before their names, the
+--- time at the end of the heading line, and a colored bar next to every
+--- line of a message.
 ---@param buf integer
 ---@param rendered eunoe.Rendered
 ---@param speakers { prompt: eunoe.Speaker, reply: eunoe.Speaker }
-function M.decorate(buf, rendered, speakers)
+---@param deco eunoe.Decorations?
+function M.decorate(buf, rendered, speakers, deco)
+  deco = deco or {}
   local ns = require("eunoe.highlight").ns
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   for _, h in ipairs(rendered.headings) do
     local sp = speakers[h.role]
     local row = h.line - 1
-    -- Above Treesitter's heading colors (priority 100).
-    vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
-      end_col = #rendered.lines[h.line],
-      hl_group = sp.hl,
-      priority = 200,
-    })
-    if type(sp.icon) == "string" and sp.icon ~= "" then
-      vim.api.nvim_buf_set_extmark(buf, ns, row, h.name_col, {
-        virt_text = { { sp.icon .. " ", sp.hl } },
+    local section = rendered.sections[h.section]
+    if type(deco.bar) == "string" and deco.bar ~= "" and section then
+      for l = h.line, section.last do
+        vim.api.nvim_buf_set_extmark(buf, ns, l - 1, 0, { sign_text = deco.bar, sign_hl_group = sp.hl, priority = 10 })
+      end
+    end
+    local clock = deco.time ~= false and M.clock(h.time)
+    if clock then
+      vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
+        virt_text = { { clock, "EunoeTime" } },
+        virt_text_pos = "right_align",
+        priority = 200,
+      })
+    end
+    -- Above Treesitter's colors (priority 100).
+    local len = #rendered.lines[h.line]
+    if len > 0 then
+      vim.api.nvim_buf_set_extmark(buf, ns, row, 0, { end_col = len, hl_group = sp.hl, priority = 200 })
+    end
+    if h.icon_col then
+      vim.api.nvim_buf_set_extmark(buf, ns, row, h.icon_col, {
+        virt_text = { { h.icon_text, sp.hl } },
         virt_text_pos = "inline",
         priority = 200,
       })
@@ -715,12 +866,30 @@ end
 
 --- Show rendered turns in the eunoe split, creating it if needed.
 ---@param turns eunoe.Turn[]
----@param opts { name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }? }
+---@param opts { name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
 ---@return integer win, integer buf
 function M.show(turns, opts)
-  local rendered =
-    M.render(turns, { truncate = opts.truncate, total = opts.total, wrap = opts.wrap, agent = opts.agent })
   local win, buf = M.current()
+  local has_bar = type(opts.bar) == "string" and opts.bar ~= ""
+  -- Wrap at `view.wrap`, or narrower when the window is: lines Neovim
+  -- wraps again are hard to read.
+  local wrap = opts.wrap
+  if wrap then
+    local cols = (win and vim.api.nvim_win_get_width(win) or width(opts.width)) - (has_bar and 2 or 0) - 1
+    wrap = math.max(20, math.min(wrap, cols))
+  end
+  local speakers = opts.speakers or {
+    prompt = { hl = "EunoeUser" },
+    reply = { hl = "EunoeAgent" },
+  }
+  local rendered = M.render(turns, {
+    truncate = opts.truncate,
+    total = opts.total,
+    wrap = wrap,
+    agent = opts.agent,
+    heading = opts.heading,
+    icons = { prompt = speakers.prompt.icon, reply = speakers.reply.icon },
+  })
   if not buf then
     buf = vim.api.nvim_create_buf(false, true)
     vim.bo[buf].bufhidden = "wipe"
@@ -747,10 +916,6 @@ function M.show(turns, opts)
   for _, hd in ipairs(rendered.headings) do
     heading_at[hd.line] = hd
   end
-  local speakers = opts.speakers or {
-    prompt = { hl = "EunoeUser" },
-    reply = { hl = "EunoeAgent" },
-  }
   if win then
     -- Keep the mode the user is in (`o`, `zM`, `zR` …) across a reload.
     M.level = vim.wo[win].foldlevel
@@ -760,11 +925,12 @@ function M.show(turns, opts)
     fold_at = fold_at,
     heading_at = heading_at,
     speakers = speakers,
-    wrap = opts.wrap,
+    heading = opts.heading,
+    wrap = wrap,
     open_latest = opts.truncate and opts.truncate.open_latest,
   }
   M.state[buf] = st
-  M.decorate(buf, rendered, speakers)
+  M.decorate(buf, rendered, speakers, { bar = opts.bar, time = (opts.heading or {}).time })
   set_keymaps(buf, opts.handlers, opts.keys or require("eunoe.config").defaults.keys)
 
   local prev = vim.api.nvim_get_current_win()
@@ -773,6 +939,7 @@ function M.show(turns, opts)
     st.prev_win = prev
   end
   set_win_options(win)
+  vim.wo[win].signcolumn = has_bar and "yes:1" or "no"
   apply_folds(win, st)
   place_cursor(win, st)
   if opts.focus then

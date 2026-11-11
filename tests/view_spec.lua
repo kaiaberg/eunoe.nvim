@@ -92,15 +92,15 @@ return {
   end,
   ["render: headings, blank lines, no fold without truncation"] = function()
     local r = view.render({ { n = 1, prompt = "Hi", reply = "Hello\nthere" } }, { truncate = false })
-    h.eq(r.lines, { "# 1 · You", "", "Hi", "", "# 1 · Agent", "", "Hello", "there" })
+    h.eq(r.lines, { "1 · You", "Hi", "", "1 · Agent", "Hello", "there" })
     h.eq(r.headings, {
-      { line = 1, turn = 1, role = "prompt", name_col = 7, last = 4, section = 1 },
-      { line = 5, turn = 1, role = "reply", name_col = 7, last = 8, section = 2 },
+      { line = 1, turn = 1, role = "prompt", last = 3, section = 1 },
+      { line = 4, turn = 1, role = "reply", last = 6, section = 2 },
     })
     h.eq(r.folds, {})
     h.eq(
       r.sections[2],
-      { turn = 1, role = "reply", first = 7, last = 8, text = "Hello\nthere", lines = { "Hello", "there" } }
+      { turn = 1, role = "reply", first = 5, last = 6, text = "Hello\nthere", lines = { "Hello", "there" } }
     )
   end,
   ["render: note when older turns are left out"] = function()
@@ -114,16 +114,13 @@ return {
       { truncate = false }
     )
     h.eq(r.lines, {
-      "# 1 · Agent",
-      "",
+      "1 · Agent",
       "Orphan",
       "",
-      "# 2 · You",
-      "",
+      "2 · You",
       "Go",
       "",
-      "# 2 · Agent",
-      "",
+      "2 · Agent",
       "_(no reply)_",
       "",
       "_(interrupted)_",
@@ -133,7 +130,7 @@ return {
   ["render: folds per section, separate limits, latest marked"] = function()
     local r = view.render(TURNS, { truncate = { chars = 100, prompt = 1000 } })
     h.eq(#r.folds, 2, "two long replies; the long prompt is under its own limit")
-    h.eq(r.folds[1], { first = 10, last = 16, chars = 6 * 43 + 44 + 6 }) -- lines a4..a10
+    h.eq(r.folds[1], { first = 8, last = 14, chars = 6 * 43 + 44 + 6 }) -- lines a4..a10
     h.eq(r.folds[2].latest, true)
   end,
   ["show: a read-only Markdown split with closed folds"] = function()
@@ -176,13 +173,13 @@ return {
     local win2, buf2 = show({ { n = 1, prompt = "New", reply = "Text" } })
     h.eq(win2, win1)
     h.eq(buf2, buf1)
-    h.eq(vim.api.nvim_buf_get_lines(buf2, 0, 1, false)[1], "# 1 · You")
+    h.eq(vim.api.nvim_buf_get_lines(buf2, 0, 1, false)[1], "1 · You")
     reset()
   end,
   ["render: the agent's heading name, Agent by default"] = function()
     local r = view.render({ { n = 3, prompt = "Hi", reply = "Hello" } }, { truncate = false, agent = "Claude" })
-    h.eq(r.lines[1], "# 3 · You")
-    h.eq(r.lines[5], "# 3 · Claude")
+    h.eq(r.lines[1], "3 · You")
+    h.eq(r.lines[4], "3 · Claude")
   end,
   ["show: headings get colors and icons as extmarks, the text stays plain"] = function()
     reset()
@@ -190,7 +187,7 @@ return {
       agent = "Bot",
       speakers = { prompt = { hl = "EunoeUser", icon = "U" }, reply = { hl = "EunoeAgent", icon = false } },
     })
-    h.eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), { "# 1 · You", "", "Hi", "", "# 1 · Bot", "", "Hello" })
+    h.eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), { "1 · You", "Hi", "", "1 · Bot", "Hello" })
     local marks = vim.api.nvim_buf_get_extmarks(buf, require("eunoe.highlight").ns, 0, -1, { details = true })
     local got = vim.tbl_map(function(m)
       local d = m[4]
@@ -200,10 +197,118 @@ return {
       return a[1] * 100 + a[2] < b[1] * 100 + b[2] or (a[1] == b[1] and a[2] == b[2] and a[3] ~= false)
     end)
     h.eq(got, {
-      { 0, 0, "EunoeUser", false, 10 },
-      { 0, 7, false, "U ", false },
-      { 4, 0, "EunoeAgent", false, 10 },
+      { 0, 0, "EunoeUser", false, 8 },
+      { 0, 5, false, "U ", false },
+      { 3, 0, "EunoeAgent", false, 8 },
     })
+    reset()
+  end,
+  ["heading_line: every combination of number, separator, icon and name"] = function()
+    local function line(icon, h)
+      return { view.heading_line(7, "You", icon, h) }
+    end
+    h.eq(line("I", {}), { "7 · You", 5, "I " })
+    h.eq(line(nil, {}), { "7 · You" })
+    h.eq(line("I", { separator = false }), { "7 You", 2, "I " })
+    h.eq(line("I", { number = false }), { "You", 0, "I " })
+    h.eq(line("I", { names = false }), { "7 ·", 4, " I" })
+    h.eq(line(nil, { names = false }), { "7" }, "no separator without anything after it")
+    h.eq(line("I", { number = false, names = false }), { "", 0, "I" })
+    h.eq(line(false, { number = false, names = false }), { "" })
+  end,
+  ["render: a blank line after the heading where the message would merge with it"] = function()
+    local function second(reply)
+      return view.render({ { n = 1, reply = reply } }, { truncate = false }).lines[2]
+    end
+    h.eq(second("Text"), "Text")
+    h.eq(second("- item"), "- item")
+    h.eq(second("1. first"), "1. first")
+    h.eq(second("```lua\nx\n```"), "```lua")
+    h.eq(second("| a | b |\n|---|---|"), "| a | b |")
+    for _, merging in ipairs({ "---", "===", "    code()", "\tcode()", "3. third" }) do
+      h.eq(second(merging), "", merging)
+    end
+    local r = view.render({ { n = 1, reply = "---\nmore" } }, { truncate = false })
+    h.eq(r.sections[1].first, 3, "the message starts after the blank line")
+  end,
+  ["oneline: pad lines up numbers and names, pad = false doesn't"] = function()
+    local r = view.render({ { n = 9, prompt = "a", reply = "b" }, { n = 10, prompt = "c", reply = "d" } }, {
+      truncate = false,
+      agent = "Claude",
+    })
+    local st = { rendered = r, speakers = { prompt = { hl = "U" }, reply = { hl = "A" } }, heading = {} }
+    local function row(i)
+      return vim.fn.join(
+        vim.tbl_map(function(c)
+          return c[1]
+        end, view.message_line(st, st.rendered.headings[i], 60)),
+        ""
+      )
+    end
+    h.eq({ row(1), row(2), row(3) }, { " 9 · You     a", " 9 · Claude  b", "10 · You     c" })
+    st.heading = { pad = false }
+    h.eq({ row(1), row(2) }, { "9 · You  a", "9 · Claude  b" })
+    -- The time is drawn right-aligned over the row: the text leaves room.
+    r.headings[1].time = "2026-11-11T09:30:00Z"
+    local long = view.render({ { n = 1, prompt = string.rep("word ", 30), reply = "b" } }, { truncate = false })
+    long.headings[1].time = "2026-11-11T09:30:00Z"
+    st.rendered = long
+    local clock = view.clock("2026-11-11T09:30:00Z")
+    h.eq(vim.fn.strdisplaywidth(row(1)), 60 - #clock - 1)
+    st.heading = { time = false }
+    h.eq(vim.fn.strdisplaywidth(row(1)), 60)
+  end,
+  ["show: heading.time = false leaves out the time"] = function()
+    reset()
+    local turns = { { n = 1, prompt = "Hi", reply = "Yo", time = "2026-11-11T09:30:00Z" } }
+    local _, buf = show(turns, { heading = { time = false } })
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+      h.truthy(m[4].virt_text_pos ~= "right_align", "a time was shown")
+    end
+    reset()
+  end,
+  ["clock: local time today, with the date before"] = function()
+    local t = view.epoch("2026-11-11T09:30:00.123Z")
+    h.eq(t, 1794389400)
+    h.eq(view.clock("2026-11-11T09:30:00Z", t + 60), os.date("%H:%M", t))
+    h.eq(view.clock("2026-11-11T09:30:00Z", t + 3 * 86400), os.date("%b %d %H:%M", t))
+    h.eq(view.clock("yesterday"), nil)
+    h.eq(view.clock(nil), nil)
+  end,
+  ["show: a bar in the sign column, the time on the prompt heading"] = function()
+    reset()
+    local turns = { { n = 1, prompt = "Hi", reply = "Hello\nthere", time = "2026-11-11T09:30:00Z" } }
+    local win, buf = show(turns, { bar = "▎" })
+    h.eq(vim.wo[win].signcolumn, "yes:1")
+    local signs, clocks = {}, {}
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, require("eunoe.highlight").ns, 0, -1, { details = true })) do
+      local d = m[4]
+      if d.sign_text then
+        signs[#signs + 1] = { m[2], vim.trim(d.sign_text), d.sign_hl_group }
+      end
+      if d.virt_text_pos == "right_align" then
+        clocks[#clocks + 1] = { m[2], d.virt_text[1][1] }
+      end
+    end
+    h.eq(signs, {
+      { 0, "▎", "EunoeUser" },
+      { 1, "▎", "EunoeUser" },
+      { 3, "▎", "EunoeAgent" },
+      { 4, "▎", "EunoeAgent" },
+      { 5, "▎", "EunoeAgent" },
+    }, "every message line, not the gap")
+    h.eq(clocks, { { 0, view.clock("2026-11-11T09:30:00Z") } })
+    local win2 = show(turns, { bar = false })
+    h.eq(vim.wo[win2].signcolumn, "no")
+    reset()
+  end,
+  ["show: lines wrap at the window's width when it is narrower than view.wrap"] = function()
+    reset()
+    local words = string.rep("word ", 40)
+    local _, buf = show({ { n = 1, prompt = words, reply = "ok" } }, { wrap = 80, width = 40, bar = "▎" })
+    for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+      h.truthy(vim.fn.strdisplaywidth(l) <= 40 - 3, "too wide: " .. l)
+    end
     reset()
   end,
   ["flatten: one line, without fences and Markdown markers"] = function()
@@ -229,9 +334,9 @@ return {
     end
     h.eq(vim.fn.foldclosed(vim.fn.line(".")), hd[2].line, "cursor on the same message")
     local text = vim.fn.foldtextresult(hd[1].line)
-    h.eq(text, "# 1 · U You  First?")
+    h.eq(text, "1 · U You    First?", "You padded to the width of Agent")
     local reply = vim.fn.foldtextresult(hd[2].line)
-    h.truthy(reply:find("^# 1 · Agent  a1 x+ a2"), reply)
+    h.truthy(reply:find("^1 · Agent  a1 x+ a2"), reply)
     h.truthy(vim.fn.strdisplaywidth(reply) <= 60, "fits the window: " .. reply)
     h.truthy(reply:find("…$"), reply)
     st.wrap = 40
@@ -309,11 +414,11 @@ return {
       local _, buf = view.current()
       h.eq(vim.api.nvim_buf_get_name(buf), "eunoe://claude/abc-123")
       local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-      h.truthy(text:find("# 2 · You\n\nsay hi again", 1, true), text)
-      h.truthy(text:find("# 2 · Claude\n", 1, true), text)
+      h.truthy(text:find("2 · You\nsay hi again", 1, true), text)
+      h.truthy(text:find("2 · Claude\n", 1, true), text)
       local icons = {}
       for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
-        if m[4].virt_text then
+        if m[4].virt_text and m[4].virt_text_pos == "inline" then
           icons[m[4].virt_text[1][1]] = m[4].virt_text[1][2]
         end
       end

@@ -17,6 +17,33 @@ M.defaults = {
     --- truncated too. `false` keeps lines as they are. Copying with `y`
     --- gets the extra line breaks; quoting uses the original text.
     wrap = 80,
+    --- A bar in the sign column next to every line of a message, in the
+    --- speaker's color. `false` for none (and no sign column).
+    bar = "▎",
+  },
+  --- What the message headings show: `38 · <icon> Claude`, with the
+  --- time on the right.
+  heading = {
+    --- The turn number.
+    number = true,
+    --- The `·` after the number.
+    separator = true,
+    --- Icons before the names (Nerd Font glyphs). `false` turns them off,
+    --- e.g. without a Nerd Font.
+    icons = {
+      --- Your prompts: nf-fa-user.
+      user = "\u{f007}",
+      --- The agent's replies; nil uses the agent's own icon (Claude Code:
+      --- nf-cod-claude), or nf-md-robot for agents without one.
+      agent = nil,
+    },
+    --- The speaker's name: "You", "Claude".
+    names = true,
+    --- The time of each prompt, at the right end of its heading.
+    time = true,
+    --- In one-line mode, pad numbers and names to the same width, so the
+    --- messages line up.
+    pad = true,
   },
   --- Keys in the eunoe split (buffer-local). `false` leaves a key unmapped.
   keys = {
@@ -42,15 +69,6 @@ M.defaults = {
     --- Leave the newest reply unfolded (it's the one being answered); its
     --- fold still exists, so `zc` closes it.
     open_latest = true,
-  },
-  --- Icons before the names in the headings (Nerd Font glyphs). `false`
-  --- turns them off, e.g. without a Nerd Font.
-  icons = {
-    --- Your prompts: nf-fa-user.
-    user = "\u{f007}",
-    --- The agent's replies; nil uses the agent's own icon (Claude Code:
-    --- nf-cod-claude), or nf-md-robot for agents without one.
-    agent = nil,
   },
 }
 
@@ -85,6 +103,9 @@ local SCHEMA = {
         return type(v) == "number" and v > 0
       end, "a fraction below 1 or a number of columns"),
       focus = BOOL,
+      bar = opt(function(v)
+        return v == false or (type(v) == "string" and vim.fn.strdisplaywidth(v) <= 2)
+      end, "false or a string of 1 or 2 columns"),
       wrap = opt(function(v)
         return v == false or (whole(v) and v >= 20)
       end, "false or a number of columns (20 or more)"),
@@ -97,9 +118,15 @@ local SCHEMA = {
     or_false = true,
     fields = { chars = LIMIT, prompt = LIMIT, reply = LIMIT, open_latest = BOOL },
   },
-  icons = {
-    or_false = true,
-    fields = { user = ICON, agent = ICON },
+  heading = {
+    fields = {
+      number = BOOL,
+      separator = BOOL,
+      icons = { or_false = true, fields = { user = ICON, agent = ICON } },
+      names = BOOL,
+      time = BOOL,
+      pad = BOOL,
+    },
   },
 }
 
@@ -150,10 +177,11 @@ function M.setup(opts)
     vim.notify("eunoe: setup(): " .. table.concat(M.problems, "; "), vim.log.levels.WARN)
   end
   local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
-  for _, group in ipairs({ "truncate", "icons" }) do
-    if opts[group] == false then
-      merged[group] = false
-    end
+  if opts.truncate == false then
+    merged.truncate = false
+  end
+  if type(opts.heading) == "table" and opts.heading.icons == false then
+    merged.heading.icons = false
   end
   M.options = merged
 end

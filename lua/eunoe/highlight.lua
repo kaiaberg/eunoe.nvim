@@ -12,6 +12,8 @@ M.groups = {
   EunoeUser = { fg = "#5C8FD6", ctermfg = 68, bold = true },
   --- The agent's headings, unless its reader has a color.
   EunoeAgent = { link = "Title" },
+  --- The time on the heading lines.
+  EunoeTime = { link = "Comment" },
   --- The start of a message in one-line mode.
   EunoeOneline = { link = "Normal" },
   --- Closed folds in the eunoe window (it maps `Folded` to this group):

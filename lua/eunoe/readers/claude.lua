@@ -13,9 +13,9 @@ M.tested_version = "2.1.322"
 --- Display name, for messages and `:checkhealth`.
 M.label = "Claude Code"
 
---- Name in the reply headings (`# 6 · Claude`), its icon (nf-cod-claude)
+--- Name in the reply headings (`6 · Claude`), its icon (nf-cod-claude)
 --- and color (Claude's terracotta, for `EunoeAgentClaude`).
-M.heading = "Claude"
+M.speaker = "Claude"
 M.icon = "\u{ec82}"
 M.color = "#D97757"
 
