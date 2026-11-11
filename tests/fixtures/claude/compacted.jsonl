@@ -1,0 +1,8 @@
+{"type":"user","uuid":"u1","parentUuid":null,"message":{"role":"user","content":"Before compaction"}}
+{"type":"assistant","uuid":"r1","parentUuid":"u1","message":{"role":"assistant","content":[{"type":"text","text":"Old reply"}]}}
+{"type":"system","subtype":"stop_hook_summary","uuid":"s1","parentUuid":"r1"}
+{"type":"system","subtype":"compact_boundary","uuid":"b1","parentUuid":null,"logicalParentUuid":"s1"}
+{"type":"user","uuid":"c1","parentUuid":"b1","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued from a previous conversation. Summary: ..."}}
+{"type":"attachment","uuid":"a1","parentUuid":"c1"}
+{"type":"user","uuid":"u2","parentUuid":"a1","message":{"role":"user","content":"After compaction"}}
+{"type":"assistant","uuid":"r2","parentUuid":"u2","message":{"role":"assistant","content":[{"type":"text","text":"New reply"}]}}

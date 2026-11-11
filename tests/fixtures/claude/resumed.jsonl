@@ -1,0 +1,50 @@
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"session-owner"}
+{"type":"atis-latch"}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"e60ab2b2-6c38-4def-9835-94622828d499","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z","message":{"role":"user","content":"say hi"}}
+{"type":"attachment","uuid":"2fc306fe-8dd1-4997-bb0e-2f1e82a1b3fc","parentUuid":"e60ab2b2-6c38-4def-9835-94622828d499","isSidechain":false,"timestamp":"2026-11-11T08:29:20.463Z"}
+{"type":"attachment","uuid":"45095908-696a-46a2-9664-a5ef33ab0bf6","parentUuid":"2fc306fe-8dd1-4997-bb0e-2f1e82a1b3fc","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z"}
+{"type":"attachment","uuid":"b684e806-684d-42e4-a001-0e1c84549152","parentUuid":"45095908-696a-46a2-9664-a5ef33ab0bf6","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z"}
+{"type":"attachment","uuid":"2f6eb7b2-7fcc-4c00-920e-ef6c4ded8e1f","parentUuid":"b684e806-684d-42e4-a001-0e1c84549152","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z"}
+{"type":"attachment","uuid":"908844a8-3a64-40e5-a416-3ff26db8d820","parentUuid":"2f6eb7b2-7fcc-4c00-920e-ef6c4ded8e1f","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z"}
+{"type":"attachment","uuid":"ee4c0e32-d571-4363-9c5b-8c3a830b861d","parentUuid":"908844a8-3a64-40e5-a416-3ff26db8d820","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z"}
+{"type":"attachment","uuid":"eaf4330b-7b9f-4bfb-b219-5d14ee9a2ece","parentUuid":"ee4c0e32-d571-4363-9c5b-8c3a830b861d","isSidechain":false,"timestamp":"2026-11-11T08:29:20.464Z"}
+{"type":"attachment","uuid":"ffc96052-72aa-4b54-a2da-d34fd77984cc","parentUuid":"eaf4330b-7b9f-4bfb-b219-5d14ee9a2ece","isSidechain":false,"timestamp":"2026-11-11T08:29:20.722Z"}
+{"type":"attachment","uuid":"cd56770b-a783-48f1-98ad-eff7d0e14c22","parentUuid":"ffc96052-72aa-4b54-a2da-d34fd77984cc","isSidechain":false,"timestamp":"2026-11-11T08:29:20.722Z"}
+{"type":"attachment","uuid":"27ce6168-d236-4d92-b521-a6f9a60a9ced","parentUuid":"cd56770b-a783-48f1-98ad-eff7d0e14c22","isSidechain":false,"timestamp":"2026-11-11T08:29:20.722Z"}
+{"type":"attachment","uuid":"35c924f0-6d55-41b2-841d-2d450538344f","parentUuid":"27ce6168-d236-4d92-b521-a6f9a60a9ced","isSidechain":false,"timestamp":"2026-11-11T08:29:20.724Z"}
+{"type":"attachment","uuid":"3726beb1-8ff1-44a3-801a-fefc12a58086","parentUuid":"35c924f0-6d55-41b2-841d-2d450538344f","isSidechain":false,"timestamp":"2026-11-11T08:29:20.725Z"}
+{"type":"attachment","uuid":"1425be36-2399-4b7b-9dee-fcbd82f5ee1a","parentUuid":"3726beb1-8ff1-44a3-801a-fefc12a58086","isSidechain":false,"timestamp":"2026-11-11T08:29:20.726Z"}
+{"type":"api-request-shape","timestamp":"2026-11-11T08:29:20.745Z"}
+{"type":"api-request-blob"}
+{"type":"api-request-blob"}
+{"type":"api-request","timestamp":"2026-11-11T08:29:20.745Z"}
+{"type":"last-prompt"}
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"session-owner"}
+{"type":"atis-latch"}
+{"type":"assistant","uuid":"b9056ec2-34ae-4c03-88be-59ed2e801eb7","parentUuid":"1425be36-2399-4b7b-9dee-fcbd82f5ee1a","isSidechain":false,"timestamp":"2026-11-11T08:29:22.831Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi! What would you like to work on?"}]}}
+{"type":"attachment","uuid":"75118f13-0869-41e5-96a2-949278ee2e54","parentUuid":"b9056ec2-34ae-4c03-88be-59ed2e801eb7","isSidechain":false,"timestamp":"2026-11-11T08:29:22.858Z"}
+{"type":"last-prompt"}
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"session-owner"}
+{"type":"atis-latch"}
+{"type":"system","subtype":"stop_hook_summary","uuid":"97378b39-ec97-4a12-a092-da13dff40e63","parentUuid":"75118f13-0869-41e5-96a2-949278ee2e54","isSidechain":false,"timestamp":"2026-11-11T08:29:23.084Z"}
+{"type":"system","subtype":"turn_duration","uuid":"5700e90d-77e5-4edb-b0a1-a9df42f7b0ba","parentUuid":"97378b39-ec97-4a12-a092-da13dff40e63","isSidechain":false,"isMeta":false,"timestamp":"2026-11-11T08:29:23.086Z"}
+{"type":"cost-state"}
+{"type":"last-prompt"}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"856778a9-712d-4026-a31d-2e9fd0cc904e","parentUuid":"5700e90d-77e5-4edb-b0a1-a9df42f7b0ba","isSidechain":false,"timestamp":"2026-11-11T08:31:42.784Z","message":{"role":"user","content":"say hi again"}}
+{"type":"api-request","timestamp":"2026-11-11T08:31:43.075Z"}
+{"type":"assistant","uuid":"a5ac6dee-a3e0-4426-91eb-990d5a2e7811","parentUuid":"856778a9-712d-4026-a31d-2e9fd0cc904e","isSidechain":false,"timestamp":"2026-11-11T08:31:45.313Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi again!"}]}}
+{"type":"system","subtype":"stop_hook_summary","uuid":"4665a8de-e48e-4e44-98b0-fab5a5ae73c9","parentUuid":"a5ac6dee-a3e0-4426-91eb-990d5a2e7811","isSidechain":false,"timestamp":"2026-11-11T08:31:45.553Z"}
+{"type":"system","subtype":"turn_duration","uuid":"5aee9382-21de-4ab0-90f1-53b5da2e67ff","parentUuid":"4665a8de-e48e-4e44-98b0-fab5a5ae73c9","isSidechain":false,"isMeta":false,"timestamp":"2026-11-11T08:31:45.555Z"}
+{"type":"cost-state"}
+{"type":"last-prompt"}
+{"type":"cost-state"}
+{"type":"cost-state"}
+{"type":"cost-state"}

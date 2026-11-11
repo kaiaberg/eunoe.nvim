@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Neovim ${{ matrix.nvim }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        nvim: [v0.11.7, stable, nightly]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+
+      - name: Versions
+        run: |
+          nvim --version | head -1
+          git --version
+
+      - name: Run tests
+        run: make test
+
+  format:
+    name: StyLua
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 2.6.0 # keep in step with local `make fmt`
+          args: --check lua/ tests/

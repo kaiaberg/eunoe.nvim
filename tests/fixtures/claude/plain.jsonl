@@ -1,0 +1,14 @@
+{"type":"mode","mode":"default"}
+{"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-11-11T10:00:00.000Z","message":{"role":"user","content":"Explain the parser."}}
+{"type":"attachment","uuid":"a1","parentUuid":"u1"}
+{"type":"assistant","uuid":"r1","parentUuid":"a1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"(scrubbed)"}]}}
+{"type":"assistant","uuid":"r2","parentUuid":"r1","message":{"role":"assistant","content":[{"type":"text","text":"Let me look at it."}]}}
+{"type":"assistant","uuid":"r3","parentUuid":"r2","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read"}]}}
+{"type":"user","uuid":"u2","parentUuid":"r3","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"secret file content"}]}}
+{"type":"assistant","uuid":"r4","parentUuid":"u2","message":{"role":"assistant","content":[{"type":"text","text":"It walks the chain."}]}}
+{"type":"system","subtype":"turn_duration","uuid":"s1","parentUuid":"r4"}
+{"type":"brand-new-record","note":"a type eunoe doesn't know"}
+this line is not JSON
+{"type":"user","uuid":"u3","parentUuid":"s1","timestamp":"2026-11-11T10:05:00.000Z","message":{"role":"user","content":"Thanks!\nTwo lines."}}
+{"type":"assistant","uuid":"r5","parentUuid":"u3","message":{"role":"assistant","content":[{"type":"text","text":"You're welcome."}]}}
+{"type":"last-prompt"}

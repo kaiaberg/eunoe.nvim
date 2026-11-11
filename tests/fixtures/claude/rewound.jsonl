@@ -1,0 +1,6 @@
+{"type":"user","uuid":"u1","parentUuid":null,"message":{"role":"user","content":"First prompt"}}
+{"type":"assistant","uuid":"r1","parentUuid":"u1","message":{"role":"assistant","content":[{"type":"text","text":"First reply"}]}}
+{"type":"user","uuid":"u2","parentUuid":"r1","message":{"role":"user","content":"Abandoned prompt"}}
+{"type":"assistant","uuid":"r2","parentUuid":"u2","message":{"role":"assistant","content":[{"type":"text","text":"Abandoned reply"}]}}
+{"type":"user","uuid":"u3","parentUuid":"r1","message":{"role":"user","content":"Prompt after rewind"}}
+{"type":"assistant","uuid":"r3","parentUuid":"u3","message":{"role":"assistant","content":[{"type":"text","text":"Reply after rewind"}]}}
