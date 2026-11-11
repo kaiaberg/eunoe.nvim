@@ -240,6 +240,96 @@ function M.parse(input)
   return out, stats
 end
 
+--- Claude Code's config directory: `$CLAUDE_CONFIG_DIR` or `~/.claude`.
+---@return string
+function M.root()
+  local dir = vim.env.CLAUDE_CONFIG_DIR
+  if not dir or dir == "" then
+    dir = (vim.env.HOME or vim.fn.expand("~")) .. "/.claude"
+  end
+  return vim.fs.normalize(dir)
+end
+
+---@return table?
+local function read_json(path)
+  local f = io.open(path, "r")
+  if not f then
+    return nil
+  end
+  local data = f:read("*a")
+  f:close()
+  local ok, obj = pcall(vim.json.decode, data, DECODE_OPTS)
+  return ok and type(obj) == "table" and obj or nil
+end
+
+--- The transcript of a session id, or nil (none before the first prompt).
+--- Globs on the id, which avoids Claude Code's project-folder naming rule.
+---@param id string
+---@return string?
+function M.transcript(id)
+  if not id:match("^[%w%-]+$") then
+    return nil
+  end
+  local found = vim.fn.glob(M.root() .. "/projects/*/" .. id .. ".jsonl", true, true)
+  return found[1]
+end
+
+--- A sessions file (`<root>/sessions/<pid>.json`) as a session, when it is
+--- well-formed and its process is still the one that wrote it.
+---@param ctx eunoe.Context
+---@param info table?
+---@param pid integer
+---@param via "parent"|"cwd"
+---@return eunoe.Session?
+local function session_of(ctx, info, pid, via)
+  if not info or info.pid ~= pid or type(info.sessionId) ~= "string" or type(info.cwd) ~= "string" then
+    return nil
+  end
+  local start = type(info.procStart) == "string" and info.procStart or nil
+  if not require("eunoe.session").alive(ctx, pid, start) then
+    return nil
+  end
+  return {
+    reader = "claude",
+    id = info.sessionId,
+    pid = pid,
+    cwd = info.cwd,
+    transcript = M.transcript(info.sessionId),
+    via = via,
+    name = type(info.name) == "string" and info.name or nil,
+    updated = type(info.updatedAt) == "number" and info.updatedAt or nil,
+  }
+end
+
+--- Find Claude Code sessions for a context. Claude Code keeps a file per
+--- running process in `<root>/sessions/<pid>.json` with the current
+--- `sessionId` (it follows `/clear` and `/resume`). The nearest ancestor
+--- with such a file is the session Neovim was started from; without one,
+--- return the live sessions whose cwd is Neovim's.
+---@param ctx eunoe.Context
+---@return eunoe.Session[]
+function M.detect(ctx)
+  local dir = M.root() .. "/sessions"
+  for _, pid in ipairs(ctx.chain) do
+    local s = session_of(ctx, read_json(("%s/%d.json"):format(dir, pid)), pid, "parent")
+    if s then
+      return { s }
+    end
+  end
+  local realpath = require("eunoe.session").realpath
+  local found = {}
+  for name, kind in vim.fs.dir(dir) do
+    local pid = kind == "file" and tonumber(name:match("^(%d+)%.json$"))
+    if pid then
+      local info = read_json(dir .. "/" .. name)
+      if info and type(info.cwd) == "string" and realpath(info.cwd) == ctx.cwd then
+        found[#found + 1] = session_of(ctx, info, pid, "cwd")
+      end
+    end
+  end
+  return found
+end
+
 --- Read and parse a transcript file asynchronously.
 ---
 --- Calls `cb(turns, stats)` on success, or `cb(nil, err)` when the file
