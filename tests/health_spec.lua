@@ -97,7 +97,7 @@ return {
     h.eq(config.validate({ turns = 0, view = { wrap = 10, size = 3 }, trunacte = {}, keys = { quote = 1 } }), {
       "keys.quote: expected a key (string) or false, got 1",
       "trunacte: unknown option",
-      "turns: expected a positive whole number, got 0",
+      "turns: expected nil or a positive whole number, got 0",
       "view.size: unknown option",
       "view.wrap: expected false or a number of columns (20 or more), got 10",
     })

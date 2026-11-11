@@ -29,13 +29,14 @@ nothing anywhere and never changes the transcript.
 - [Usage](#usage)
 - [Which session it shows](#which-session-it-shows)
 - [Long prompts and replies](#long-prompts-and-replies)
-- [One line per message](#one-line-per-message)
+- [Modes: one line per message, everything open](#modes-one-line-per-message-everything-open)
 - [Quoting into the prompt](#quoting-into-the-prompt)
 - [Commands](#commands)
 - [Mappings](#mappings)
 - [Configuration](#configuration)
 - [Colors](#colors)
 - [Lua API](#lua-api)
+- [Status line](#status-line)
 - [Agents](#agents)
 - [Limitations](#limitations)
 - [Why "eunoe"?](#why-eunoe)
@@ -84,7 +85,7 @@ eunoe finds from where you run it.
 ## Usage
 
 Press `Ctrl+G` in Claude Code and run `:Eunoe`. A split opens on the
-right with the last 10 turns, newest at the bottom, the cursor on the
+right with every turn of the session, newest at the bottom, the cursor on the
 latest reply:
 
 ```
@@ -114,14 +115,14 @@ from it, and use your Markdown plugins.
 | Key | Does |
 |---|---|
 | `]]` / `[[` | Next / previous turn |
-| `za`, `zR`, `zM` … | Open and close [truncated text](#long-prompts-and-replies) |
+| `za`, `zo`, `zc` … | Open and close [truncated text](#long-prompts-and-replies) and messages |
 | `>` | Visual mode: [quote](#quoting-into-the-prompt) the selection into the prompt |
-| `o` | [One line per message](#one-line-per-message), and back |
+| `o` | [One line per message](#modes-one-line-per-message-everything-open), and back |
+| `O` | Everything open, and back |
 | `R` | Reload, e.g. after the agent wrote more |
 | `q` | Close |
 
-`:Eunoe all` shows every turn of the session. `:Eunoe` again closes the
-split.
+`:Eunoe` again closes the split.
 
 Before the first prompt of a session there is nothing to show yet; eunoe
 says "No conversation yet".
@@ -159,12 +160,27 @@ breaks; quoting doesn't.
 Both are [configurable](#configuration): `truncate = false` and
 `view = { wrap = false }` turn them off.
 
-## One line per message
+## Modes: one line per message, everything open
 
-Press `o` to fold every message to one line, its heading and the start
-of its text, and again to go back. The cursor stays on its message. Use
-it to skim a long session or find a message, then open it with `o` or
-`za`:
+Every message is a fold, so the split has three modes, and they're just
+fold levels:
+
+| Mode | Shows | Keys |
+|---|---|---|
+| `oneline` | One line per message | `o`, `zM` |
+| `default` | Messages open, long text folded | |
+| `expanded` | Everything open | `O`, `zR` |
+
+`o` and `O` switch to their mode, and back to the mode before when it's
+on. The cursor stays on its message. `keys.cycle` (unset by default,
+e.g. `"<Tab>"`) goes through the modes in this order. `:Eunoe mode
+oneline` and `require("eunoe").mode("oneline")` switch by name, and
+`view.mode` sets the mode the split opens in. After that, the mode is
+kept when you press `R` or open the split again.
+
+One-line mode shows each message's heading and the start of its text.
+Use it to skim a long session or find a message, then open it with `o`
+or `za`:
 
 ```
 6 · You     Can you make the parser skip system reminders?
@@ -175,18 +191,9 @@ it to skim a long session or find a message, then open it with `o` or
 Numbers and names are padded to the same width so the messages line up
 (`heading.pad`).
 
-Each message is a fold, so the split has three modes, and they're just
-fold levels:
-
-| Mode | Keys |
-|---|---|
-| One line per message | `o`, `zM` |
-| Default: messages open, long text folded | `o` from one-line mode |
-| Everything open | `zR` |
-
-Searching with `/` opens the messages that match. The mode is kept when
-you press `R` or open the split again. Lines are cut at `view.wrap` (80)
-characters or the window width.
+Searching with `/` opens the messages that match. Lines are cut at
+`view.wrap` (80) characters or the window width. Expanded mode shows
+everything, e.g. to read or search a whole session.
 
 ## Quoting into the prompt
 
@@ -213,8 +220,9 @@ quoted line is sent again.
 
 | Command | Does |
 |---|---|
-| `:Eunoe` | Open the split with the last turns, or close it |
-| `:Eunoe all` | Open the split with every turn |
+| `:Eunoe` | Open the split, or close it |
+| `:Eunoe all` | Open the split with every turn, also when `turns` is set |
+| `:Eunoe mode [mode]` | Switch to `default`, `oneline` or `expanded`, or show the mode |
 | `:checkhealth eunoe` | Check the setup and the current session |
 
 ## Mappings
@@ -235,9 +243,9 @@ The defaults:
 
 ```lua
 require("eunoe").setup({
-  -- How many turns :Eunoe shows (newest at the bottom); :Eunoe all shows
-  -- all of them.
-  turns = 10,
+  -- How many turns :Eunoe shows, the newest; nil shows all of them.
+  -- :Eunoe all always shows all of them.
+  turns = nil,
   view = {
     -- Width of the split: a fraction of the editor's columns (< 1) or a
     -- number of columns.
@@ -251,6 +259,8 @@ require("eunoe").setup({
     -- A bar in the sign column next to every line of a message, in the
     -- speaker's color. false: no bar and no sign column.
     bar = "▎",
+    -- The mode the split opens in: "default", "oneline" or "expanded".
+    mode = "default",
   },
   -- Keys in the eunoe split (buffer-local). false leaves a key unmapped.
   keys = {
@@ -260,6 +270,8 @@ require("eunoe").setup({
     reload = "R",
     quote = ">", -- Visual mode
     oneline = "o", -- one line per message, and back
+    expanded = "O", -- everything open, and back
+    cycle = false, -- the next mode, e.g. "<Tab>"
   },
   -- Long prompts and replies show their beginning; the rest goes into a
   -- closed fold. false turns truncation off.
@@ -337,6 +349,7 @@ eunoe.open()              -- open (or refresh) the split
 eunoe.open({ all = true })
 eunoe.close()
 eunoe.toggle()
+eunoe.mode("oneline")     -- switch modes; eunoe.mode() returns the mode
 
 -- The current session's turns, oldest first, for pickers and other
 -- plugins. Each turn: { n = 6, prompt = "…", reply = "…", time = "…" }.
@@ -344,6 +357,69 @@ eunoe.turns({ n = 5 }, function(turns, session)
   -- session: { id, pid, reader, transcript, … }
 end)
 ```
+
+## Status line
+
+eunoe draws no status line. It exposes data, and you build the
+component in lualine, heirline or a plain `'statusline'`:
+
+- `vim.b.eunoe_status`: a table in the eunoe buffer.
+- `User EunoeStatus`: fires when the table changes, with the table in
+  `ev.data`.
+- `require("eunoe").status()`: the same table, computed when called, or
+  `nil` when the split isn't open.
+
+```lua
+{
+  buf = 12,                -- the eunoe buffer
+  agent = "Claude Code",   -- the agent's display name
+  reader = "claude",
+  session = "77044140-…",  -- the session id
+  turns = 41,              -- turns shown
+  total = 41,              -- turns in the session
+  mode = "default",        -- "oneline", "default" or "expanded"
+  turn = 38,               -- the turn at the cursor (nil above it)
+  role = "reply",          -- "prompt" or "reply"
+  speaker = "Claude",      -- "You" or the agent's name
+  loaded = 1794400000,     -- when the session was read (os.time())
+}
+```
+
+The cursor fields follow the cursor: the event fires when the cursor
+moves to another message, not on every move.
+
+A lualine component, shown in the eunoe window only:
+
+```lua
+local function eunoe()
+  local s = vim.b.eunoe_status
+  return ("%s · turn %s/%d · %s"):format(s.agent, s.turn or "–", s.total, s.mode)
+end
+require("lualine").setup({
+  sections = {
+    lualine_c = {
+      { eunoe, cond = function() return vim.b.eunoe_status ~= nil end },
+    },
+  },
+})
+```
+
+A plain `'statusline'` for the eunoe window:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "EunoeStatus",
+  callback = function(ev)
+    local s, win = ev.data, vim.fn.bufwinid(ev.data.buf)
+    if win ~= -1 then
+      vim.wo[win].statusline = ("%s · turn %s/%d · %s"):format(s.agent, s.turn or "–", s.total, s.mode)
+    end
+  end,
+})
+```
+
+In heirline, update the component on the event:
+`update = { "User", pattern = "EunoeStatus" }`.
 
 ## Agents
 

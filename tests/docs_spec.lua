@@ -6,7 +6,60 @@ local function read(path)
   return table.concat(vim.fn.readfile(path), "\n")
 end
 
+--- The Lua code blocks of the README (```lua) and the help file (>lua).
+local function lua_blocks()
+  local blocks = {}
+  for code in read(root .. "/README.md"):gmatch("```lua\n(.-)\n```") do
+    blocks[#blocks + 1] = { "README", code }
+  end
+  local lines, cur = vim.fn.readfile(HELP), nil
+  for _, line in ipairs(lines) do
+    if cur then
+      if line:match("^%s*<") or line:match("^%S") then
+        blocks[#blocks + 1] = { "help", table.concat(cur, "\n") }
+        cur = nil
+      else
+        cur[#cur + 1] = line
+      end
+    elseif line:match(">lua$") then
+      cur = {}
+    end
+  end
+  return blocks
+end
+
 return {
+  ["every Lua example compiles"] = function()
+    local blocks = lua_blocks()
+    h.truthy(#blocks >= 10, "found " .. #blocks .. " blocks")
+    for _, b in ipairs(blocks) do
+      -- A block is code, or a value such as the status table.
+      local ok = loadstring(b[2]) or loadstring("return " .. b[2])
+      h.truthy(ok, ("%s example doesn't compile:\n%s"):format(b[1], b[2]))
+    end
+  end,
+  ["the README's plain statusline example works"] = function()
+    local code
+    for _, b in ipairs(lua_blocks()) do
+      if b[1] == "README" and b[2]:find('pattern = "EunoeStatus"', 1, true) and b[2]:find("statusline", 1, true) then
+        code = b[2]
+      end
+    end
+    h.truthy(code, "example not found")
+    local view = require("eunoe.view")
+    assert(loadstring(code))()
+    local win = view.show({ { n = 1, prompt = "Hi", reply = "Yo" } }, {
+      name = "eunoe://test/statusline",
+      session = { reader = "claude", id = "abc", label = "Claude Code" },
+      truncate = false,
+      width = 60,
+      focus = true,
+      handlers = { close = view.close, reload = function() end },
+    })
+    h.eq(vim.wo[win].statusline, "Claude Code · turn 1/1 · default")
+    view.close()
+    vim.api.nvim_clear_autocmds({ event = "User", pattern = "EunoeStatus" })
+  end,
   [":helptags succeeds and :help finds the main tags"] = function()
     local tmp = vim.fn.tempname()
     vim.fn.mkdir(tmp .. "/doc", "p")

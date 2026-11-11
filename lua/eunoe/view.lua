@@ -442,14 +442,29 @@ local function width(spec)
   return math.max(20, math.min(w, cols - 20))
 end
 
---- Fold levels of the modes: one line per message, the default
+--- The modes are fold levels: one line per message, the default
 --- (messages open, long text folded), everything open.
-M.ONELINE, M.DEFAULT, M.ALL = 0, 1, 2
+M.ONELINE, M.DEFAULT, M.EXPANDED = 0, 1, 2
+M.MODES = { oneline = M.ONELINE, default = M.DEFAULT, expanded = M.EXPANDED }
+M.MODE_ORDER = { "oneline", "default", "expanded" }
 
--- The fold level kept across reloads and reopening, and the one `oneline`
--- goes back to.
-M.level = M.DEFAULT
-local back_to = M.DEFAULT
+--- The mode of a fold level (`zr` can go past 2: still expanded).
+---@param level integer
+---@return "oneline"|"default"|"expanded"
+function M.mode_of(level)
+  if level <= M.ONELINE then
+    return "oneline"
+  elseif level == M.DEFAULT then
+    return "default"
+  end
+  return "expanded"
+end
+
+-- The fold level kept across reloads and reopening; nil until the mode
+-- is first changed, so `view.mode` decides.
+M.level = nil
+-- The mode a toggle goes back to.
+local previous = "default"
 
 --- Set the fold level (the mode) of the eunoe window. In the default mode
 --- the newest reply's truncation fold is opened (`truncate.open_latest`).
@@ -495,22 +510,129 @@ local function fill(win)
   end)
 end
 
---- Switch between one line per message and the mode before it. The
---- cursor stays on its message: one-line mode fills the window, the other
---- modes put the message at the top.
----@param win integer?
-function M.toggle_oneline(win)
-  win = win or vim.api.nvim_get_current_win()
-  local level = vim.wo[win].foldlevel
-  if level > M.ONELINE then
-    back_to = level
-    M.set_level(win, M.ONELINE)
+--- The mode of the eunoe window.
+---@param win integer
+---@return "oneline"|"default"|"expanded"
+function M.mode(win)
+  return M.mode_of(vim.wo[win].foldlevel)
+end
+
+--- The heading of the message at a line: the last one at or above it.
+---@param rendered eunoe.Rendered
+---@param lnum integer
+---@return eunoe.Heading?
+function M.heading_at(rendered, lnum)
+  local hs = rendered.headings
+  local lo, hi, found = 1, #hs, nil
+  while lo <= hi do
+    local mid = math.floor((lo + hi) / 2)
+    if hs[mid].line <= lnum then
+      found, lo = hs[mid], mid + 1
+    else
+      hi = mid - 1
+    end
+  end
+  return found
+end
+
+---@class eunoe.Status
+---@field buf integer The eunoe buffer.
+---@field agent string The agent's display name ("Claude Code").
+---@field reader string The reader's name ("claude").
+---@field session string The session id.
+---@field turns integer Turns shown.
+---@field total integer Turns in the session.
+---@field mode "oneline"|"default"|"expanded"
+---@field turn integer? Turn at the cursor.
+---@field role "prompt"|"reply"? Message at the cursor.
+---@field speaker string? Its speaker's name ("You", "Claude").
+---@field loaded integer When the session was read (seconds since the epoch).
+
+--- Status data of an eunoe buffer, computed now.
+---@param buf integer
+---@return eunoe.Status?
+function M.status(buf)
+  local st = M.state[buf]
+  if not st then
+    return nil
+  end
+  local win = find_win(buf)
+  local session = st.session or {}
+  local hd = win and M.heading_at(st.rendered, vim.api.nvim_win_get_cursor(win)[1])
+  return {
+    buf = buf,
+    agent = session.label or session.reader or "Agent",
+    reader = session.reader or "",
+    session = session.id or "",
+    turns = st.turns,
+    total = st.total,
+    mode = win and M.mode(win) or M.mode_of(M.level or M.MODES[st.mode] or M.DEFAULT),
+    turn = hd and hd.turn,
+    role = hd and hd.role,
+    speaker = hd and st.rendered.names[hd.role],
+    loaded = st.loaded,
+  }
+end
+
+--- Refresh `b:eunoe_status` and fire `User EunoeStatus` when it changed.
+---@param buf integer
+function M.update_status(buf)
+  local status = M.status(buf)
+  if not status or vim.deep_equal(vim.b[buf].eunoe_status, status) then
+    return
+  end
+  vim.b[buf].eunoe_status = status
+  vim.api.nvim_exec_autocmds("User", { pattern = "EunoeStatus", modeline = false, data = status })
+end
+
+--- Switch the eunoe window to a mode. The cursor stays on its message:
+--- one-line mode fills the window, the other modes put the message at
+--- the top.
+---@param win integer
+---@param name "oneline"|"default"|"expanded"
+function M.set_mode(win, name)
+  local before = M.mode(win)
+  if before ~= name then
+    previous = before
+  end
+  M.set_level(win, M.MODES[name])
+  if name == "oneline" then
     fill(win)
   else
-    M.set_level(win, back_to)
     vim.api.nvim_win_call(win, function()
       vim.cmd("normal! zt")
     end)
+  end
+  M.update_status(vim.api.nvim_win_get_buf(win))
+end
+
+--- Switch to a mode, or back to the mode before it when it's on.
+---@param win integer?
+---@param name "oneline"|"expanded"
+function M.toggle_mode(win, name)
+  win = win or vim.api.nvim_get_current_win()
+  if M.mode(win) == name then
+    M.set_mode(win, previous ~= name and previous or "default")
+  else
+    M.set_mode(win, name)
+  end
+end
+
+--- One line per message, and back.
+---@param win integer?
+function M.toggle_oneline(win)
+  M.toggle_mode(win, "oneline")
+end
+
+--- The next mode: one-line → default → expanded → one-line.
+---@param win integer?
+function M.cycle_mode(win)
+  win = win or vim.api.nvim_get_current_win()
+  local cur = M.mode(win)
+  for i, name in ipairs(M.MODE_ORDER) do
+    if name == cur then
+      return M.set_mode(win, M.MODE_ORDER[i % #M.MODE_ORDER + 1])
+    end
   end
 end
 
@@ -526,7 +648,7 @@ local function apply_folds(win, st)
       vim.cmd(("%d,%dfold"):format(hd.line, hd.last))
     end
   end)
-  M.set_level(win, M.level)
+  M.set_level(win, M.level or M.MODES[st.mode] or M.DEFAULT)
 end
 
 --- Default icons: nf-md-robot for agents without their own.
@@ -843,8 +965,22 @@ local function set_keymaps(buf, handlers, keys)
   end, "eunoe: previous turn")
   map("n", "reload", handlers.reload, "eunoe: reload")
   map("n", "oneline", function()
-    M.toggle_oneline()
-  end, "eunoe: one line per message")
+    M.toggle_mode(nil, "oneline")
+  end, "eunoe: one line per message, and back")
+  map("n", "expanded", function()
+    M.toggle_mode(nil, "expanded")
+  end, "eunoe: everything open, and back")
+  map("n", "cycle", function()
+    M.cycle_mode()
+  end, "eunoe: next mode")
+  -- Fold-level commands change the mode without an event: run them as
+  -- usual, then refresh the status.
+  for _, z in ipairs({ "zR", "zM", "zr", "zm" }) do
+    vim.keymap.set("n", z, function()
+      vim.cmd("normal! " .. (vim.v.count > 0 and vim.v.count or "") .. z)
+      M.update_status(buf)
+    end, { buffer = buf, silent = true, desc = "eunoe: " .. z .. " (and refresh the status)" })
+  end
   map("x", "quote", M.quote_visual, "eunoe: quote into the prompt")
 end
 
@@ -866,7 +1002,7 @@ end
 
 --- Show rendered turns in the eunoe split, creating it if needed.
 ---@param turns eunoe.Turn[]
----@param opts { name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
+---@param opts { session: { reader: string, id: string, label: string? }?, mode: string?, name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
 ---@return integer win, integer buf
 function M.show(turns, opts)
   local win, buf = M.current()
@@ -901,6 +1037,12 @@ function M.show(turns, opts)
         M.state[buf] = nil
       end,
     })
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      buffer = buf,
+      callback = function()
+        M.update_status(buf)
+      end,
+    })
   end
   pcall(vim.api.nvim_buf_set_name, buf, opts.name)
   vim.bo[buf].modifiable = true
@@ -920,12 +1062,20 @@ function M.show(turns, opts)
     -- Keep the mode the user is in (`o`, `zM`, `zR` …) across a reload.
     M.level = vim.wo[win].foldlevel
   end
+  local old = M.state[buf]
   local st = {
+    -- A reload keeps the window eunoe was opened from (for quoting).
+    prev_win = old and old.prev_win,
     rendered = rendered,
     fold_at = fold_at,
     heading_at = heading_at,
     speakers = speakers,
     heading = opts.heading,
+    mode = opts.mode,
+    session = opts.session,
+    turns = #turns,
+    total = math.max(opts.total or 0, #turns),
+    loaded = os.time(),
     wrap = wrap,
     open_latest = opts.truncate and opts.truncate.open_latest,
   }
@@ -945,6 +1095,7 @@ function M.show(turns, opts)
   if opts.focus then
     vim.api.nvim_set_current_win(win)
   end
+  M.update_status(buf)
   return win, buf
 end
 

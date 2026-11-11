@@ -3,9 +3,20 @@ if vim.g.loaded_eunoe then
 end
 vim.g.loaded_eunoe = true
 
+local MODES = { "default", "oneline", "expanded" }
+
 local subcommands = {
   all = function()
     require("eunoe").open({ all = true })
+  end,
+  mode = function(name)
+    if not name then
+      return vim.notify("eunoe: mode " .. require("eunoe").mode())
+    end
+    if not vim.tbl_contains(MODES, name) then
+      return vim.notify(("eunoe: unknown mode %q (default, oneline, expanded)"):format(name), vim.log.levels.ERROR)
+    end
+    require("eunoe").mode(name)
   end,
 }
 
@@ -18,14 +29,18 @@ vim.api.nvim_create_user_command("Eunoe", function(cmd)
   if not fn then
     return vim.notify(("eunoe: unknown subcommand %q"):format(sub), vim.log.levels.ERROR)
   end
-  fn()
+  fn(cmd.fargs[2])
 end, {
-  nargs = "?",
+  nargs = "*",
   desc = "Show the agent's conversation",
-  complete = function(lead)
+  complete = function(lead, line)
+    local words = vim.split(line, "%s+", { trimempty = true })
+    local done = #words - (lead == "" and 0 or 1) -- words before the one being typed
+    local choices = done == 1 and vim.tbl_keys(subcommands) or (done == 2 and words[2] == "mode" and MODES) or {}
+    table.sort(choices)
     return vim.tbl_filter(function(s)
       return s:find(lead, 1, true) == 1
-    end, vim.tbl_keys(subcommands))
+    end, choices)
   end,
 })
 

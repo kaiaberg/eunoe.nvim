@@ -123,6 +123,8 @@ function M.open(opts)
       width = o.view.width,
       focus = o.view.focus,
       bar = o.view.bar,
+      mode = o.view.mode,
+      session = { reader = s.reader, id = s.id, label = reader.label },
       heading = o.heading,
       keys = o.keys,
       agent = type(reader.speaker) == "string" and reader.speaker or nil,
@@ -141,6 +143,43 @@ function M.open(opts)
       },
     })
   end)
+end
+
+--- The split's mode, or switch it: "default", "oneline" or "expanded".
+--- Switching opens the split if it's closed.
+---@param name string?
+---@return string mode The mode (after switching).
+function M.mode(name)
+  local view = require("eunoe.view")
+  local win = view.current()
+  if name == nil then
+    if win then
+      return view.mode(win)
+    end
+    return view.level and view.mode_of(view.level) or config.options.view.mode
+  end
+  if not view.MODES[name] then
+    error(('eunoe.mode(): expected "default", "oneline" or "expanded", got %s'):format(vim.inspect(name)), 2)
+  end
+  if win then
+    view.set_mode(win, name)
+  else
+    view.level = view.MODES[name]
+    M.open()
+  end
+  return name
+end
+
+--- Status data of the eunoe split in this tab page, for status lines:
+--- agent, reader, session, turns, total, mode, and the turn, role and
+--- speaker at the cursor. nil when the split isn't open. The same table
+--- is in `b:eunoe_status` of the eunoe buffer, and `User EunoeStatus`
+--- fires when it changes.
+---@return eunoe.Status?
+function M.status()
+  local view = require("eunoe.view")
+  local _, buf = view.current()
+  return buf and view.status(buf) or nil
 end
 
 --- Close the conversation split.

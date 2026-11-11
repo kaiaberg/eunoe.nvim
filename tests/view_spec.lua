@@ -23,6 +23,7 @@ local function reset()
     end
   end
   view.state = {}
+  view.level = nil
 end
 
 local function show(turns, extra)
@@ -361,15 +362,114 @@ return {
     h.eq(vim.wo[win].foldlevel, view.ONELINE, "after R")
     vim.cmd("normal zR")
     show(TURNS)
-    h.eq(vim.wo[win].foldlevel >= view.ALL, true, "zR kept")
+    h.eq(vim.wo[win].foldlevel >= view.EXPANDED, true, "zR kept")
     vim.cmd("normal o")
     h.eq(vim.wo[win].foldlevel, view.ONELINE)
     vim.cmd("normal o")
-    h.eq(vim.wo[win].foldlevel >= view.ALL, true, "o goes back to the mode before")
+    h.eq(vim.wo[win].foldlevel >= view.EXPANDED, true, "o goes back to the mode before")
     view.close()
     local win2 = show(TURNS)
-    h.eq(vim.wo[win2].foldlevel >= view.ALL, true, "kept across closing")
+    h.eq(vim.wo[win2].foldlevel >= view.EXPANDED, true, "kept across closing")
     view.level = view.DEFAULT
+    reset()
+  end,
+  ["modes: O toggles expanded and back, o and O go back to where they came from"] = function()
+    reset()
+    local win = show(TURNS)
+    h.eq(view.mode(win), "default")
+    vim.cmd("normal O")
+    h.eq(view.mode(win), "expanded")
+    for _, f in ipairs(view.state[vim.api.nvim_win_get_buf(win)].rendered.folds) do
+      h.eq(vim.fn.foldclosed(f.first), -1, "everything open")
+    end
+    vim.cmd("normal o")
+    h.eq(view.mode(win), "oneline")
+    vim.cmd("normal o")
+    h.eq(view.mode(win), "expanded", "o goes back to expanded")
+    vim.cmd("normal O")
+    h.eq(view.mode(win), "oneline", "O goes back to one-line")
+    vim.cmd("normal O")
+    h.eq(view.mode(win), "expanded")
+    reset()
+  end,
+  ["modes: the cycle key, and view.mode for the first open"] = function()
+    reset()
+    local keys = vim.tbl_extend("force", require("eunoe.config").defaults.keys, { cycle = "<Tab>" })
+    local win = show(TURNS, { keys = keys, mode = "oneline" })
+    h.eq(view.mode(win), "oneline", "opens in view.mode")
+    local seen = {}
+    for _ = 1, 3 do
+      vim.api.nvim_feedkeys(vim.keycode("<Tab>"), "x", false)
+      seen[#seen + 1] = view.mode(win)
+    end
+    h.eq(seen, { "default", "expanded", "oneline" })
+    vim.cmd("normal zR")
+    show(TURNS, { keys = keys, mode = "oneline" })
+    h.eq(view.mode(win), "expanded", "a reload keeps the mode, not view.mode")
+    reset()
+  end,
+  ["modes: eunoe.mode() and :Eunoe mode"] = function()
+    reset()
+    local eunoe = require("eunoe")
+    h.eq(eunoe.mode(), "default", "closed: the mode it will open in")
+    local win = show(TURNS)
+    h.eq(eunoe.mode("expanded"), "expanded")
+    h.eq(view.mode(win), "expanded")
+    vim.opt.rtp:prepend(h.root)
+    vim.cmd("runtime plugin/eunoe.lua")
+    vim.cmd("Eunoe mode oneline")
+    h.eq(eunoe.mode(), "oneline")
+    h.eq(vim.fn.getcompletion("Eunoe mode ", "cmdline"), { "default", "expanded", "oneline" })
+    h.eq(vim.fn.getcompletion("Eunoe m", "cmdline"), { "mode" })
+    h.truthy(not pcall(eunoe.mode, "folded"), "unknown mode")
+    reset()
+  end,
+  ["heading_at: the message at a line"] = function()
+    local r = view.render(TURNS, { truncate = false, total = 3 })
+    h.eq(view.heading_at(r, 1), nil, "the note above the first heading")
+    local hd = r.headings
+    h.eq(view.heading_at(r, hd[1].line), hd[1])
+    h.eq(view.heading_at(r, hd[2].line - 1), hd[1], "the gap belongs to the message above")
+    h.eq(view.heading_at(r, hd[4].line + 3), hd[4])
+  end,
+  ["status: b:eunoe_status and User EunoeStatus follow the cursor and the mode"] = function()
+    reset()
+    local events = {}
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "EunoeStatus",
+      callback = function(ev)
+        events[#events + 1] = ev.data
+      end,
+    })
+    local win, buf = show(TURNS, { session = { reader = "claude", id = "abc", label = "Claude Code" }, total = 5 })
+    local st = vim.b[buf].eunoe_status
+    h.eq(st.agent, "Claude Code")
+    h.eq({ st.reader, st.session, st.turns, st.total, st.mode }, { "claude", "abc", 2, 5, "default" })
+    h.eq({ st.turn, st.role, st.speaker }, { 2, "reply", "Agent" }, "the cursor starts on the newest reply")
+    h.eq(events[#events], st)
+    local n = #events
+    local hd = view.state[buf].rendered.headings
+    vim.api.nvim_win_set_cursor(win, { hd[1].line, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = buf })
+    h.eq({ vim.b[buf].eunoe_status.turn, vim.b[buf].eunoe_status.role }, { 1, "prompt" })
+    h.eq(#events, n + 1)
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = buf })
+    h.eq(#events, n + 1, "no event when nothing changed")
+    vim.cmd("normal zR")
+    h.eq(vim.b[buf].eunoe_status.mode, "expanded", "zR refreshes the status")
+    vim.cmd("normal o")
+    h.eq(vim.b[buf].eunoe_status.mode, "oneline")
+    h.eq(require("eunoe").status(), view.status(buf))
+    vim.api.nvim_del_autocmd(id)
+    reset()
+    h.eq(require("eunoe").status(), nil, "no split")
+  end,
+  ["show: a reload keeps the window eunoe was opened from"] = function()
+    reset()
+    local prev = vim.api.nvim_get_current_win()
+    local _, buf = show(TURNS)
+    show(TURNS)
+    h.eq(view.state[buf].prev_win, prev)
     reset()
   end,
   ["keys: ]] and [[ jump between turns, q closes"] = function()

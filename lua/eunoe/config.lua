@@ -3,9 +3,9 @@ local M = {}
 
 ---@class eunoe.Config
 M.defaults = {
-  --- How many turns `:Eunoe` shows (newest at the bottom); `:Eunoe all`
-  --- shows all of them.
-  turns = 10,
+  --- How many turns `:Eunoe` shows, the newest; nil shows all of them.
+  --- `:Eunoe all` always shows all of them.
+  turns = nil,
   view = {
     --- Width of the split: a fraction of the editor's columns (< 1) or a
     --- number of columns.
@@ -20,6 +20,10 @@ M.defaults = {
     --- A bar in the sign column next to every line of a message, in the
     --- speaker's color. `false` for none (and no sign column).
     bar = "▎",
+    --- The mode the split opens in: "default" (long text folded),
+    --- "oneline" (one line per message) or "expanded" (everything open).
+    --- After that, the split keeps the mode you switch to.
+    mode = "default",
   },
   --- What the message headings show: `38 · <icon> Claude`, with the
   --- time on the right.
@@ -55,6 +59,11 @@ M.defaults = {
     quote = ">",
     --- One line per message, and back.
     oneline = "o",
+    --- Everything open, and back.
+    expanded = "O",
+    --- The next mode: one-line → default → expanded. Unset by default;
+    --- e.g. "<Tab>".
+    cycle = false,
   },
   --- Long prompts and replies show their beginning; the rest goes into a
   --- closed fold. `false` turns truncation off.
@@ -96,13 +105,18 @@ end, "a key (string) or false")
 -- What each option may be. A table with `fields` is a group of options;
 -- `or_false` lets the whole group be `false`.
 local SCHEMA = {
-  turns = opt(whole, "a positive whole number"),
+  turns = opt(function(v)
+    return v == nil or whole(v)
+  end, "nil or a positive whole number"),
   view = {
     fields = {
       width = opt(function(v)
         return type(v) == "number" and v > 0
       end, "a fraction below 1 or a number of columns"),
       focus = BOOL,
+      mode = opt(function(v)
+        return v == "default" or v == "oneline" or v == "expanded"
+      end, '"default", "oneline" or "expanded"'),
       bar = opt(function(v)
         return v == false or (type(v) == "string" and vim.fn.strdisplaywidth(v) <= 2)
       end, "false or a string of 1 or 2 columns"),
@@ -112,7 +126,16 @@ local SCHEMA = {
     },
   },
   keys = {
-    fields = { close = KEY, next_turn = KEY, prev_turn = KEY, reload = KEY, quote = KEY, oneline = KEY },
+    fields = {
+      close = KEY,
+      next_turn = KEY,
+      prev_turn = KEY,
+      reload = KEY,
+      quote = KEY,
+      oneline = KEY,
+      expanded = KEY,
+      cycle = KEY,
+    },
   },
   truncate = {
     or_false = true,

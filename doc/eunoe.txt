@@ -14,7 +14,7 @@ CONTENTS                                                      *eunoe-contents*
   3. The conversation split .................................... |eunoe-split|
   4. Which session it shows .................................. |eunoe-session|
   5. Long prompts and replies ............................... |eunoe-truncate|
-     One line per message .................................. |eunoe-oneline|
+     Modes: one line per message, everything open ............ |eunoe-modes|
   6. Quoting into the prompt ................................... |eunoe-quote|
   7. Commands ............................................... |eunoe-commands|
   8. Mappings ............................................... |eunoe-mappings|
@@ -22,7 +22,8 @@ CONTENTS                                                      *eunoe-contents*
  10. Lua API ..................................................... |eunoe-api|
  11. Readers ................................................. |eunoe-readers|
  12. Highlights ........................................... |eunoe-highlights|
- 13. Limitations ......................................... |eunoe-limitations|
+ 13. Status line ............................................ |eunoe-status|
+ 14. Limitations ......................................... |eunoe-limitations|
 
 ==============================================================================
 1. INTRODUCTION                                                  *eunoe-intro*
@@ -60,9 +61,9 @@ format looks changed.
 ==============================================================================
 3. THE CONVERSATION SPLIT                                        *eunoe-split*
 
-|:Eunoe| opens a vertical split on the right with the last 10 turns
-(|eunoe-config-turns|), newest at the bottom, the cursor on the latest
-reply. Each message has a heading line: >
+|:Eunoe| opens a vertical split on the right with every turn of the
+session (or the last few, |eunoe-config-turns|), newest at the bottom, the
+cursor on the latest reply. Each message has a heading line: >
   ▎ 6 · You                                                   09:30
   ▎ Can you make the parser skip system reminders?
 
@@ -93,7 +94,8 @@ Keys in the split (buffer-local, see |eunoe-config-keys|):
   `]]` `[[`     Next / previous turn heading.
   `R`         Reload: read the session again, e.g. after the agent wrote
               more, or after `/clear` or `/resume`.
-  `o`         One line per message, and back (|eunoe-oneline|).
+  `o`         One line per message, and back (|eunoe-modes|).
+  `O`         Everything open, and back.
   `q`         Close the split.
   `>`         Visual mode: quote the selection into the prompt
               (|eunoe-quote|).
@@ -134,27 +136,34 @@ items indent their continuation lines, and quotes repeat `>`. Yanking with
 |y| copies these line breaks; quoting (|eunoe-quote|) does not.
 
                                                                *eunoe-oneline*
-One line per message ~
+                                                                 *eunoe-modes*
+Modes ~
 
 Every message is a fold, from its heading to the blank line after it,
 with the truncation fold inside. The split has three modes, which are fold
 levels ('foldlevel'):
 
-  One line per message    0   `o` or |zM|
-  Default                 1   messages open, long text folded
-  Everything open         2   |zR|
+  Mode        Level   Shows                          Keys
+  `oneline`     0       one line per message           `o`, |zM|
+  `default`     1       messages, long text folded
+  `expanded`    2       everything open                `O`, |zR|
 
-`o` switches to one line per message and back to the mode before. The
-cursor stays on its message. In one-line mode each message shows its
-heading and the start of its text, up to |eunoe-config-wrap| characters
-or the window width: >
+`o` and `O` switch to their mode, and back to the mode before when it is
+on. The cursor stays on its message. `keys.cycle` (unset by default, e.g.
+`"<Tab>"`) goes through the modes in the order above. |:Eunoe-mode| and
+|eunoe.mode()| switch to a mode by name, and |eunoe-config-view| sets the
+mode the split opens in. After that, the mode is kept when you press `R`
+or open the split again.
+
+In one-line mode each message shows its heading and the start of its
+text, up to |eunoe-config-wrap| characters or the window width: >
   6 · You     Can you make the parser skip system reminders?
   6 · Claude  Yes. Three changes: skip the tags, keep the order, and…
 <
 Use it to skim a long session or find a message, then press `o` or |za|
 on it. Searching with |/| opens the messages that match ('foldopen').
-The mode is kept when you press `R` or open the split again. In one-line
-mode the newest reply is folded too.
+In one-line mode the newest reply is folded too. Expanded mode shows
+everything, e.g. to read a whole session or search it.
 
 ==============================================================================
 6. QUOTING INTO THE PROMPT                                       *eunoe-quote*
@@ -180,12 +189,17 @@ quoted line is sent again.
 7. COMMANDS                                                   *eunoe-commands*
 
                                                                       *:Eunoe*
-:Eunoe                  Open the split with the last turns, or close it when
-                        it is open.
+:Eunoe                  Open the split, or close it when it is open.
 
                                                                   *:Eunoe-all*
-:Eunoe all              Open the split with every turn of the session. `R`
-                        keeps showing all of them.
+:Eunoe all              Open the split with every turn of the session, also
+                        when |eunoe-config-turns| is set. `R` keeps showing
+                        all of them.
+
+                                                                 *:Eunoe-mode*
+:Eunoe mode [{mode}]    Switch to `default`, `oneline` or `expanded`
+                        (|eunoe-modes|), opening the split if it is closed.
+                        Without {mode}, show the current mode.
 
 :checkhealth eunoe      Check Neovim, the options, the process lookup, the
                         readers and the current session (|eunoe-health|).
@@ -214,8 +228,14 @@ eunoe.setup({opts})
 
 The defaults: >lua
   require("eunoe").setup({
-    turns = 10,
-    view = { width = 0.4, focus = true, wrap = 80, bar = "▎" },
+    turns = nil,
+    view = {
+      width = 0.4,
+      focus = true,
+      wrap = 80,
+      bar = "▎",
+      mode = "default",
+    },
     keys = {
       close = "q",
       next_turn = "]]",
@@ -223,6 +243,8 @@ The defaults: >lua
       reload = "R",
       quote = ">",
       oneline = "o",
+      expanded = "O",
+      cycle = false,
     },
     truncate = {
       chars = 800,
@@ -245,8 +267,10 @@ The defaults: >lua
 <
                                                           *eunoe-config-turns*
 turns ~
-    How many turns |:Eunoe| shows, newest at the bottom. |:Eunoe-all| shows
-    all of them.
+    How many turns |:Eunoe| shows, the newest; `nil` shows all of them.
+    |:Eunoe-all| always shows all of them. Even long sessions open fast:
+    eunoe reads the whole transcript anyway, and showing all turns only
+    adds the rendering.
 
                                                            *eunoe-config-view*
 view.width ~
@@ -261,6 +285,10 @@ view.bar ~
     a message, in the speaker's color. `false` for none, and no sign
     column.
 
+view.mode ~
+    The mode the split opens in: `"default"`, `"oneline"` or `"expanded"`
+    (|eunoe-modes|). After you switch, the split keeps your mode.
+
                                                            *eunoe-config-wrap*
 view.wrap ~
     Break lines longer than this many characters into several lines
@@ -270,8 +298,9 @@ view.wrap ~
                                                            *eunoe-config-keys*
 keys ~
     Keys in the split, buffer-local: `close`, `next_turn`, `prev_turn`,
-    `reload`, `quote` (Visual mode) and `oneline` (|eunoe-oneline|).
-    `false` leaves a key unmapped.
+    `reload`, `quote` (Visual mode), and for the modes (|eunoe-modes|)
+    `oneline`, `expanded` and `cycle` (unset by default). `false` leaves a
+    key unmapped.
 
                                                        *eunoe-config-truncate*
 truncate ~
@@ -296,7 +325,7 @@ heading ~
     `time`        The time of each prompt, at the right end of its
                   heading: `09:30` today, `Nov 10 09:30` before. Local
                   time.
-    `pad`         In one-line mode (|eunoe-oneline|), pad the numbers and
+    `pad`         In one-line mode (|eunoe-modes|), pad the numbers and
                   names to the same width, so the messages line up: >
                      9 · You     commit and push
                      9 · Claude  I committed and pushed both repos…
@@ -334,7 +363,18 @@ eunoe.close()
 
                                                               *eunoe.toggle()*
 eunoe.toggle()
-    Open the split with the last turns, or close it.
+    Open the split, or close it.
+
+                                                                *eunoe.mode()*
+eunoe.mode({mode})
+    Switch to `"default"`, `"oneline"` or `"expanded"` (|eunoe-modes|),
+    opening the split if it is closed. Without {mode}, return the current
+    mode (or, when the split is closed, the one it will open in).
+
+                                                              *eunoe.status()*
+eunoe.status()
+    Status data of the split in this tab page, or `nil` when it isn't
+    open. See |eunoe-status|.
 
                                                                *eunoe.turns()*
 eunoe.turns({opts}, {cb})
@@ -455,7 +495,65 @@ The defaults are mid tones that read on dark and light backgrounds, with
 256-color fallbacks for terminals without 'termguicolors'.
 
 ==============================================================================
-13. LIMITATIONS                                            *eunoe-limitations*
+13. STATUS LINE                                                 *eunoe-status*
+
+eunoe draws no status line. It exposes data, and you build the component
+in lualine, heirline or a plain 'statusline':
+
+- `b:eunoe_status`: a table in the eunoe buffer.         *b:eunoe_status*
+- `User EunoeStatus`: fires when the table changes,      *EunoeStatus*
+  with the table in `ev.data`.
+- |eunoe.status()|: the same table, computed when called.
+
+Fields: >lua
+  {
+    buf = 12,                -- the eunoe buffer
+    agent = "Claude Code",   -- the agent's display name
+    reader = "claude",
+    session = "77044140-…",  -- the session id
+    turns = 41,              -- turns shown
+    total = 41,              -- turns in the session
+    mode = "default",        -- "oneline", "default" or "expanded"
+    turn = 38,               -- the turn at the cursor (nil above it)
+    role = "reply",          -- "prompt" or "reply"
+    speaker = "Claude",      -- "You" or the agent's name
+    loaded = 1794400000,     -- when the session was read (|os.time()|)
+  }
+<
+The cursor fields follow the cursor: the event fires when the cursor moves
+to another message, not on every move.
+
+A lualine component, shown in the eunoe window only: >lua
+  local function eunoe()
+    local s = vim.b.eunoe_status
+    return ("%s · turn %s/%d · %s"):format(
+      s.agent, s.turn or "–", s.total, s.mode)
+  end
+  require("lualine").setup({
+    sections = {
+      lualine_c = {
+        { eunoe, cond = function() return vim.b.eunoe_status ~= nil end },
+      },
+    },
+  })
+<
+A plain 'statusline' for the eunoe window: >lua
+  vim.api.nvim_create_autocmd("User", {
+    pattern = "EunoeStatus",
+    callback = function(ev)
+      local s, win = ev.data, vim.fn.bufwinid(ev.data.buf)
+      if win ~= -1 then
+        vim.wo[win].statusline = ("%s · turn %s/%d · %s"):format(
+          s.agent, s.turn or "–", s.total, s.mode)
+      end
+    end,
+  })
+<
+In heirline, update the component on the event: >lua
+  update = { "User", pattern = "EunoeStatus" }
+<
+==============================================================================
+14. LIMITATIONS                                            *eunoe-limitations*
 
 - No live updates. In the `Ctrl+G` editor the agent waits for the prompt
   anyway; next to a running agent, press `R`.
