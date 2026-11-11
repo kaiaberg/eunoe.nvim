@@ -18,6 +18,15 @@ M.defaults = {
     --- gets the extra line breaks; quoting uses the original text.
     wrap = 80,
   },
+  --- Keys in the eunoe split (buffer-local). `false` leaves a key unmapped.
+  keys = {
+    close = "q",
+    next_turn = "]]",
+    prev_turn = "[[",
+    reload = "R",
+    --- Visual mode: quote the selection into the prompt window.
+    quote = ">",
+  },
   --- Long prompts and replies show their beginning; the rest goes into a
   --- closed fold. `false` turns truncation off.
   truncate = {

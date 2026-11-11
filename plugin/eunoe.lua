@@ -32,3 +32,7 @@ end, {
 vim.keymap.set("n", "<Plug>(eunoe-toggle)", function()
   require("eunoe").toggle()
 end, { desc = "eunoe: toggle the conversation split" })
+
+vim.keymap.set("x", "<Plug>(eunoe-quote)", function()
+  require("eunoe.view").quote_visual()
+end, { desc = "eunoe: quote the selection into the prompt" })

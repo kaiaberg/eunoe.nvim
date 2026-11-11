@@ -105,6 +105,7 @@ function M.open(opts)
       wrap = o.view.wrap,
       width = o.view.width,
       focus = o.view.focus,
+      keys = o.keys,
       handlers = {
         close = M.close,
         reload = function()

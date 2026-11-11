@@ -95,7 +95,10 @@ return {
     h.eq(r.lines, { "# 1 · You", "", "Hi", "", "# 1 · Agent", "", "Hello", "there" })
     h.eq(r.headings, { { line = 1, turn = 1, role = "prompt" }, { line = 5, turn = 1, role = "reply" } })
     h.eq(r.folds, {})
-    h.eq(r.sections[2], { turn = 1, role = "reply", first = 7, last = 8, text = "Hello\nthere" })
+    h.eq(
+      r.sections[2],
+      { turn = 1, role = "reply", first = 7, last = 8, text = "Hello\nthere", lines = { "Hello", "there" } }
+    )
   end,
   ["render: note when older turns are left out"] = function()
     local r = view.render({ { n = 9, prompt = "Hi", reply = "Yo" } }, { truncate = false, total = 9 })
