@@ -1,0 +1,329 @@
+*eunoe.txt*  Show a coding agent's conversation in Neovim
+
+                                But Eunoe behold, that yonder rises;
+                                Lead him to it, and, as thou art accustomed,
+                                Revive again the half-dead virtue in him.
+                                  — Beatrice, Purgatorio XXXIII
+                                    (trans. Longfellow)
+
+==============================================================================
+CONTENTS                                                      *eunoe-contents*
+
+  1. Introduction .............................................. |eunoe-intro|
+  2. Setup ..................................................... |eunoe-setup|
+  3. The conversation split .................................... |eunoe-split|
+  4. Which session it shows .................................. |eunoe-session|
+  5. Long prompts and replies ............................... |eunoe-truncate|
+  6. Quoting into the prompt ................................... |eunoe-quote|
+  7. Commands ............................................... |eunoe-commands|
+  8. Mappings ............................................... |eunoe-mappings|
+  9. Configuration ............................................ |eunoe-config|
+ 10. Lua API ..................................................... |eunoe-api|
+ 11. Readers ................................................. |eunoe-readers|
+ 12. Limitations ......................................... |eunoe-limitations|
+
+==============================================================================
+1. INTRODUCTION                                                  *eunoe-intro*
+
+eunoe shows a coding agent's conversation, your earlier prompts and the
+agent's replies, in a split. Claude Code is built in.
+
+When you press `Ctrl+G` in Claude Code to write a prompt in Neovim, the
+conversation disappears behind the editor. |:Eunoe| brings it back next to
+the prompt, so you can read it, jump between turns and quote from it while
+you write. It also works as a side panel next to an agent running in
+another terminal or tmux pane.
+
+eunoe only reads the agent's transcript files on your machine. It sends
+nothing anywhere and never changes the transcript.
+
+==============================================================================
+2. SETUP                                                         *eunoe-setup*
+
+Requirements: Neovim 0.11 or newer, Claude Code with Neovim as its editor,
+and `ps` (to find the agent Neovim was started from).
+
+Claude Code opens the editor from `$VISUAL`, then `$EDITOR`, so set: >sh
+  export VISUAL=nvim
+<
+|eunoe.setup()| is optional; call it only to change the defaults
+(|eunoe-config|). eunoe maps no global keys. To open it with a key, map
+|<Plug>(eunoe-toggle)|: >lua
+  vim.keymap.set("n", "<leader>e", "<Plug>(eunoe-toggle)")
+<
+Run |:checkhealth| `eunoe` to check the setup. It also shows which session
+eunoe finds from where you run it, and warns when the agent's transcript
+format looks changed.
+
+==============================================================================
+3. THE CONVERSATION SPLIT                                        *eunoe-split*
+
+|:Eunoe| opens a vertical split on the right with the last 10 turns
+(|eunoe-config-turns|), newest at the bottom, the cursor on the latest
+reply. Each turn has two headings: >markdown
+  # 6 · You
+
+  Can you make the parser skip system reminders?
+
+  # 6 · Agent
+
+  Yes. Three changes: …
+<
+The numbers let you and the agent mean the same turn ("turn 6, point 2").
+The buffer is read-only Markdown: search it, yank from it, and use your
+Markdown plugins. Its name is `eunoe://<reader>/<session id>`.
+
+Before the first prompt of a session there is no transcript yet, and the
+split says "No conversation yet".
+
+                                                                  *eunoe-keys*
+Keys in the split (buffer-local, see |eunoe-config-keys|):
+
+  `]]` `[[`     Next / previous turn heading.
+  `R`         Reload: read the session again, e.g. after the agent wrote
+              more, or after `/clear` or `/resume`.
+  `q`         Close the split.
+  `>`         Visual mode: quote the selection into the prompt
+              (|eunoe-quote|).
+
+The usual fold commands open and close truncated text: |za|, |zo|, |zc|,
+|zR|, |zM|.
+
+==============================================================================
+4. WHICH SESSION IT SHOWS                                      *eunoe-session*
+
+Started from the agent: after `Ctrl+G`, Neovim runs as a child of Claude
+Code. eunoe walks up Neovim's parent processes and shows the session of the
+nearest agent among them. This is the right one however many agents run.
+
+Next to the agent: otherwise eunoe looks for sessions running in Neovim's
+current directory. If there are several, it asks which one with
+|vim.ui.select()| and remembers the choice.
+
+Every |:Eunoe| and `R` reads the session again, so `/clear` and `/resume`
+are followed.
+
+==============================================================================
+5. LONG PROMPTS AND REPLIES                                   *eunoe-truncate*
+
+Prompts and replies longer than 800 characters (|eunoe-config-truncate|)
+show their beginning; the rest sits in a closed fold: >
+  … 1,615 more characters (za to expand)
+<
+The cut lands at the end of a line and never inside a fenced code block.
+The newest reply stays open, since it is usually the one you are
+answering; its fold still exists, so |zc| closes it.
+
+                                                                  *eunoe-wrap*
+Lines longer than 80 characters (|eunoe-config-wrap|) are broken at spaces
+into several buffer lines, so long paragraphs can fold too. Code blocks and
+tables stay as they are, list items indent their continuation lines, and
+quotes repeat `>`. Yanking with |y| copies these line breaks; quoting
+(|eunoe-quote|) does not.
+
+==============================================================================
+6. QUOTING INTO THE PROMPT                                       *eunoe-quote*
+
+Select text in the eunoe split and press `>` (|eunoe-config-keys|). eunoe
+inserts it as a `>` blockquote in the window you came from, the prompt: on
+a blank line at the cursor, or below the cursor line if it has text. The
+cursor then waits on the line after the quote, ready for your comment: >
+  > Three changes: skip the tags, keep the order, and drop empty turns.
+
+  Why drop empty turns?
+<
+The quote uses the original text, not the folded or wrapped lines on
+screen. A characterwise selection (|v|) quotes exactly what is selected, a
+linewise one (|V|) whole lines. Headings are left out.
+
+Quote short passages. The agent already has the conversation, and every
+quoted line is sent again.
+
+==============================================================================
+7. COMMANDS                                                   *eunoe-commands*
+
+                                                                      *:Eunoe*
+:Eunoe                  Open the split with the last turns, or close it when
+                        it is open.
+
+                                                                  *:Eunoe-all*
+:Eunoe all              Open the split with every turn of the session. `R`
+                        keeps showing all of them.
+
+:checkhealth eunoe      Check Neovim, the options, the process lookup, the
+                        readers and the current session (|eunoe-health|).
+
+==============================================================================
+8. MAPPINGS                                                   *eunoe-mappings*
+
+eunoe maps no global keys. The keys inside the split are |eunoe-keys|.
+
+                                                        *<Plug>(eunoe-toggle)*
+<Plug>(eunoe-toggle)    Normal mode: like |:Eunoe|.
+
+                                                         *<Plug>(eunoe-quote)*
+<Plug>(eunoe-quote)     Visual mode: quote the selection into the prompt
+                        (|eunoe-quote|). Works in the eunoe split only; the
+                        split maps it to `>` already.
+
+==============================================================================
+9. CONFIGURATION                                                *eunoe-config*
+
+                                                               *eunoe.setup()*
+eunoe.setup({opts})
+    Optional. Merges {opts} into the defaults below. Unknown options and
+    wrong values are reported with |vim.notify()| and again by
+    |:checkhealth| `eunoe`.
+
+The defaults: >lua
+  require("eunoe").setup({
+    turns = 10,
+    view = { width = 0.4, focus = true, wrap = 80 },
+    keys = {
+      close = "q",
+      next_turn = "]]",
+      prev_turn = "[[",
+      reload = "R",
+      quote = ">",
+    },
+    truncate = {
+      chars = 800,
+      prompt = nil,
+      reply = nil,
+      open_latest = true,
+    },
+  })
+<
+                                                          *eunoe-config-turns*
+turns ~
+    How many turns |:Eunoe| shows, newest at the bottom. |:Eunoe-all| shows
+    all of them.
+
+                                                           *eunoe-config-view*
+view.width ~
+    Width of the split: a fraction of the editor's columns (below 1) or a
+    number of columns.
+
+view.focus ~
+    Move the cursor into the split when it opens.
+
+                                                           *eunoe-config-wrap*
+view.wrap ~
+    Break lines longer than this many characters into several lines
+    (|eunoe-wrap|). `false` keeps lines as they are. At least 20.
+
+                                                           *eunoe-config-keys*
+keys ~
+    Keys in the split, buffer-local: `close`, `next_turn`, `prev_turn`,
+    `reload`, and `quote` (Visual mode). `false` leaves a key unmapped.
+
+                                                       *eunoe-config-truncate*
+truncate ~
+    Long prompts and replies show their beginning; the rest goes into a
+    closed fold (|eunoe-truncate|). `false` turns truncation off.
+
+    `chars`         Characters to show before folding the rest.
+    `prompt`        Separate limit for prompts; `nil` uses `chars`.
+    `reply`         Separate limit for replies; `nil` uses `chars`.
+    `open_latest`   Leave the newest reply unfolded.
+
+==============================================================================
+10. LUA API                                                        *eunoe-api*
+
+All functions are on `require("eunoe")`.
+
+                                                                *eunoe.open()*
+eunoe.open({opts})
+    Open the split, or refresh it when it is open. {opts}: `all` (boolean)
+    shows every turn, like |:Eunoe-all|.
+
+                                                               *eunoe.close()*
+eunoe.close()
+    Close the split.
+
+                                                              *eunoe.toggle()*
+eunoe.toggle()
+    Open the split with the last turns, or close it.
+
+                                                               *eunoe.turns()*
+eunoe.turns({opts}, {cb})
+    Load the current session's turns, oldest first, and call
+    {cb}(`turns`, `session`). For pickers and other plugins. {opts}: `n`
+    keeps only the last n turns. Each turn: >lua
+      { n = 6, prompt = "…", reply = "…", time = "2026-11-11T09:30:00Z" }
+<
+    `session` has `id`, `pid`, `reader`, `transcript` and `via`
+    (`"parent"` or `"cwd"`, see |eunoe-session|). If no session is found,
+    eunoe reports it and {cb} isn't called.
+
+                                                     *eunoe.register_reader()*
+eunoe.register_reader({name}, {reader})
+    Add support for an agent, replace a reader of the same name, or remove
+    one with `false`. See |eunoe-readers|.
+
+==============================================================================
+11. READERS                                                    *eunoe-readers*
+
+A reader knows one agent: how to find its sessions and how to turn a
+transcript into turns. Claude Code is built in (|eunoe-reader-claude|);
+other agents can be added with |eunoe.register_reader()|, and get the same
+split, folds, quoting and API: >lua
+  require("eunoe").register_reader("myagent", {
+    detect = function(ctx)
+      return {
+        { id = "…", pid = 123, via = "parent", transcript = "/path/to/log" },
+      }
+    end,
+    read = function(transcript, cb)
+      cb({ { n = 1, prompt = "…", reply = "…" } })
+    end,
+  })
+<
+detect({ctx}) ~
+    Return the agent's sessions for this Neovim, a list of tables with
+    `id`, `pid`, `via` and `transcript`, and optionally `updated` (a time,
+    to order several sessions in one directory) and `version`. {ctx} has
+    `chain`, Neovim's ancestor pids (nearest first), and `cwd`. Use
+    `via = "parent"` for a session whose pid is in `chain`, `via = "cwd"`
+    for one running in `cwd`.
+
+read({transcript}, {cb}) ~
+    Parse what `detect` put in `transcript` (usually a path) into turns
+    (`n`, `prompt`, `reply`, optional `time`), oldest first, then call
+    {cb}(`turns`), or {cb}(`nil`, `err`). For a transcript that doesn't
+    exist yet, `err` starts with "ENOENT".
+
+Optional fields: `label` (a display name), `tested_version` (the agent
+version the reader was last checked against) and `health`, a function that
+gets |vim.health| and adds checks to |:checkhealth| `eunoe`.
+
+The nearest agent among Neovim's parents wins across all readers. Readers
+registered under the name of a built-in one replace it; `false` removes a
+reader: >lua
+  require("eunoe").register_reader("claude", false)
+<
+                                                         *eunoe-reader-claude*
+Claude Code ~
+    Last checked with Claude Code 2.1.322. Sessions are found through
+    `~/.claude/sessions/<pid>.json`; `$CLAUDE_CONFIG_DIR` is respected. The
+    transcript format is internal and undocumented, and it changes between
+    releases. eunoe skips what it doesn't know instead of failing, so after
+    an update it may show less, not break.
+
+                                                                *eunoe-health*
+|:checkhealth| `eunoe` compares the running agent version with the last
+checked one, and warns about records of unknown types, lines that aren't
+valid JSON, and transcripts without turns. Please report these.
+
+==============================================================================
+12. LIMITATIONS                                            *eunoe-limitations*
+
+- No live updates. In the `Ctrl+G` editor the agent waits for the prompt
+  anyway; next to a running agent, press `R`.
+- Prompts and replies only. Tool calls, their output and thinking aren't
+  shown.
+- Subagent conversations are left out. After `/compact`, the earlier turns
+  are still shown, as the transcript keeps them.
+- Windows is untested.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:
