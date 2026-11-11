@@ -17,8 +17,11 @@ M.defaults = {
     --- truncated too. `false` keeps lines as they are. Copying with `y`
     --- gets the extra line breaks; quoting uses the original text.
     wrap = 80,
-    --- A bar in the sign column next to every line of a message, in the
-    --- speaker's color. `false` for none (and no sign column).
+    --- "box": a box around each message, in the speaker's color.
+    --- "bar": a colored bar next to each message instead.
+    style = "box",
+    --- The bar's character in bar style (and in one-line mode). `false`
+    --- for no bar in bar style.
     bar = "▎",
     --- The mode the split opens in: "default" (long text folded),
     --- "oneline" (one line per message) or "expanded" (everything open).
@@ -117,6 +120,9 @@ local SCHEMA = {
       mode = opt(function(v)
         return v == "default" or v == "oneline" or v == "expanded"
       end, '"default", "oneline" or "expanded"'),
+      style = opt(function(v)
+        return v == "box" or v == "bar"
+      end, '"box" or "bar"'),
       bar = opt(function(v)
         return v == false or (type(v) == "string" and vim.fn.strdisplaywidth(v) <= 2)
       end, "false or a string of 1 or 2 columns"),

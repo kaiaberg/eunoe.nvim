@@ -63,22 +63,26 @@ format looks changed.
 
 |:Eunoe| opens a vertical split on the right with every turn of the
 session (or the last few, |eunoe-config-turns|), newest at the bottom, the
-cursor on the latest reply. Each message has a heading line: >
-  ▎ 6 · You                                                   09:30
-  ▎ Can you make the parser skip system reminders?
-
-  ▎ 6 · Claude
-  ▎ Yes. Three changes: …
+cursor on the latest reply. Each message sits in a box with a heading: >
+  ╭─ 6 · You ─────────────────────────────────────────── 09:30
+  │ Can you make the parser skip system reminders?
+  ╰────────────────────────────────────────────────────────────
+  ╭─ 6 · Claude ────────────────────────────────────────────────
+  │ Yes. Three changes: …
+  ╰────────────────────────────────────────────────────────────
 <
 The numbers let you and the agent mean the same turn ("turn 6, point 2").
 The reply heading names the agent ("Agent" if its reader gives no name).
-Each heading has an icon before the name (left out in these examples)
-and its speaker's color (|eunoe-highlights|), the prompt's heading shows
-the time on the right, and a bar `▎` in the speaker's color runs along
-each message in the sign column (|eunoe-config-view|). What the headings
-show is configurable (|eunoe-config-heading|).
+Each heading has an icon before the name (left out in these examples),
+the box and heading have the speaker's color (|eunoe-highlights|), and the
+prompt's heading shows the time on the right. The box is open on the
+right, so long code lines don't break it. With `view.style = "bar"` a bar
+`▎` runs along each message instead (|eunoe-config-view|). What the
+headings show is configurable (|eunoe-config-heading|).
 
-The icons, the time and the bar are drawn on top of the text. The buffer
+The box, the icons and the time are drawn on top of the text (the box's
+left side in 'statuscolumn'), and the box needs no extra lines: its top
+is the heading line, its bottom the blank line between messages. The buffer
 line is just `6 · You`, so search for `6 ·` to find turn 6, and yanking
 copies no icons. The headings aren't Markdown `#` headings: Markdown
 renderers such as render-markdown.nvim would restyle those. The buffer
@@ -233,6 +237,7 @@ The defaults: >lua
       width = 0.4,
       focus = true,
       wrap = 80,
+      style = "box",
       bar = "▎",
       mode = "default",
     },
@@ -280,10 +285,14 @@ view.width ~
 view.focus ~
     Move the cursor into the split when it opens.
 
+view.style ~
+    `"box"`: a box around each message, open on the right, in the
+    speaker's color. `"bar"`: a bar next to each message instead. Both
+    take two columns on the left ('statuscolumn').
+
 view.bar ~
-    A character (1 or 2 columns) in the sign column next to every line of
-    a message, in the speaker's color. `false` for none, and no sign
-    column.
+    The bar's character (1 column) in bar style and for messages folded
+    to one line. `false` turns the bar and its column off in bar style.
 
 view.mode ~
     The mode the split opens in: `"default"`, `"oneline"` or `"expanded"`
@@ -455,12 +464,25 @@ valid JSON, and transcripts without turns. Please report these.
 ==============================================================================
 12. HIGHLIGHTS                                              *eunoe-highlights*
 
-The headings are colored by speaker. Colorschemes can define the groups,
-and so can you, after any |:colorscheme| command: >lua
+The headings and boxes are colored by speaker. Colorschemes can define
+the groups, and so can you: >lua
   vim.api.nvim_set_hl(0, "EunoeUser", { fg = "#7aa2f7", bold = true })
 <
+eunoe only defines a group that is unset, or still holds what eunoe set,
+so a group set by a colorscheme or by you stays. Set yours after
+|:colorscheme|, which clears all groups.
+
+The speaker colors are adjusted to the background: eunoe keeps the hue
+and moves the lightness until the color has a 4.5:1 contrast with
+|hl-Normal|'s background (the WCAG minimum for text). Claude's orange is
+darker on light themes and stays orange. They are computed again after
+|:colorscheme| and when 'background' changes. Transparent themes have no
+background color, so eunoe goes by 'background'. Each color has a
+256-color fallback for terminals without 'termguicolors'.
+
                                                                    *EunoeUser*
-EunoeUser               Your prompts' headings. Default: blue.
+EunoeUser               Your prompts' headings and boxes. Default: slate
+                        gray `#8A93A6`, adjusted.
 
                                                                   *EunoeAgent*
 EunoeAgent              The agent's headings, if its reader has no color.
@@ -469,14 +491,12 @@ EunoeAgent              The agent's headings, if its reader has no color.
                                                             *EunoeAgentClaude*
 EunoeAgent{Name}        One group per agent, named after its reader:
                         `EunoeAgentClaude` for Claude Code (default: its
-                        terracotta orange). Without a reader `color`, it
-                        links to |EunoeAgent|.
+                        terracotta orange `#D97757`, adjusted). Without a
+                        reader `color`, it links to |EunoeAgent|.
 
                                                                    *EunoeTime*
 EunoeTime               The time on the prompt headings. Default: linked
                         to `Comment`.
-
-The bar next to each message uses the heading's group.
 
                                                                 *EunoeOneline*
 EunoeOneline            The start of a message in one-line mode
@@ -490,9 +510,6 @@ EunoeFolded             Closed folds in the eunoe window, which maps
                                                               *EunoeTruncated*
 EunoeTruncated          The "… 1,615 more characters" line of truncated
                         text. Default: linked to `Comment`.
-
-The defaults are mid tones that read on dark and light backgrounds, with
-256-color fallbacks for terminals without 'termguicolors'.
 
 ==============================================================================
 13. STATUS LINE                                                 *eunoe-status*

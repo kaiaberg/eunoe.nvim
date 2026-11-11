@@ -89,22 +89,27 @@ right with every turn of the session, newest at the bottom, the cursor on the
 latest reply:
 
 ```
-▎ 6 · You                                                     09:30
-▎ Can you make the parser skip system reminders?
-
-▎ 6 · Claude
-▎ Yes. Three changes:
-▎
-▎ 1. …
+╭─ 6 · You ─────────────────────────────────────────── 09:30
+│ Can you make the parser skip system reminders?
+╰────────────────────────────────────────────────────────────
+╭─ 6 · Claude ────────────────────────────────────────────────
+│ Yes. Three changes:
+│
+│ 1. …
+╰────────────────────────────────────────────────────────────
 ```
 
 Turns are numbered, so "turn 6, point 2" means the same thing to you and
-the agent. Each heading has an icon (left out in these examples) and a
-[color](#colors) for its speaker (blue for you, orange for Claude), a bar in that color runs
-along each message, and your prompts show their time. What the headings
-show is [configurable](#configuration).
+the agent. Each message sits in a box in its speaker's
+[color](#colors) (gray for you, orange for Claude), each heading has an
+icon (left out in these examples), and your prompts show their time. The
+box is open on the right, so long code lines don't break it, and it
+needs no extra lines: its top is the heading, its bottom the blank line
+between messages. `view = { style = "bar" }` shows a bar next to each
+message instead. What the headings show is
+[configurable](#configuration).
 
-The icons, the time and the bar are drawn on top of the text: the
+The box, the icons and the time are drawn on top of the text: the
 buffer line is just `6 · You`, so `/6 ·` finds turn 6 and yanking copies
 no icons. The headings aren't Markdown `#` headings, so Markdown
 renderers like
@@ -256,8 +261,11 @@ require("eunoe").setup({
     -- tables), so long paragraphs can be truncated too. false keeps
     -- lines as they are.
     wrap = 80,
-    -- A bar in the sign column next to every line of a message, in the
-    -- speaker's color. false: no bar and no sign column.
+    -- "box": a box around each message, open on the right. "bar": a bar
+    -- next to each message instead.
+    style = "box",
+    -- The bar's character, in bar style and for messages folded to one
+    -- line. false: no bar in bar style.
     bar = "▎",
     -- The mode the split opens in: "default", "oneline" or "expanded".
     mode = "default",
@@ -320,14 +328,15 @@ the robot instead: `heading = { icons = { agent = "\u{f06a9}" } }`.
 
 ## Colors
 
-The split uses these highlight groups. Colorschemes can
-set them, and so can you (after `:colorscheme`):
+The split uses these highlight groups. Colorschemes can set them, and so
+can you (after `:colorscheme`, which clears all groups). eunoe never
+overwrites a group a colorscheme or you set.
 
 | Group | Default |
 |---|---|
-| `EunoeUser` | Your prompts' headings: blue |
+| `EunoeUser` | Your prompts' headings and boxes: slate gray `#8A93A6`, adjusted |
 | `EunoeAgent` | Agents without a color of their own: linked to `Title` |
-| `EunoeAgentClaude` | Claude Code's replies: Claude's terracotta orange |
+| `EunoeAgentClaude` | Claude Code's replies: Claude's orange `#D97757`, adjusted |
 | `EunoeTime` | The time on the prompt headings: linked to `Comment` |
 | `EunoeOneline` | The text in one-line mode: linked to `Normal` |
 | `EunoeFolded` | Closed folds in the split (it maps `Folded` to this): linked to `Normal` |
@@ -337,8 +346,12 @@ set them, and so can you (after `:colorscheme`):
 vim.api.nvim_set_hl(0, "EunoeUser", { fg = "#7aa2f7", bold = true })
 ```
 
-The defaults are mid tones that read on dark and light backgrounds, with
-256-color fallbacks for terminals without true color.
+The speaker colors are adjusted to your background: eunoe keeps the hue
+and changes the lightness until the color has 4.5:1 contrast with the
+background (the WCAG minimum for text). So Claude's orange is darker on
+light themes and still orange. It follows `:colorscheme` and
+`'background'`, and each color has a 256-color fallback for terminals
+without true color.
 
 ## Lua API
 

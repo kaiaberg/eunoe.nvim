@@ -185,6 +185,7 @@ return {
   ["show: headings get colors and icons as extmarks, the text stays plain"] = function()
     reset()
     local _, buf = show({ { n = 1, prompt = "Hi", reply = "Hello" } }, {
+      style = "bar",
       agent = "Bot",
       speakers = { prompt = { hl = "EunoeUser", icon = "U" }, reply = { hl = "EunoeAgent", icon = false } },
     })
@@ -249,13 +250,17 @@ return {
     h.eq({ row(1), row(2), row(3) }, { " 9 · You     a", " 9 · Claude  b", "10 · You     c" })
     st.heading = { pad = false }
     h.eq({ row(1), row(2) }, { "9 · You  a", "9 · Claude  b" })
-    -- The time is drawn right-aligned over the row: the text leaves room.
-    r.headings[1].time = "2026-11-11T09:30:00Z"
+    -- Bar style draws the time right-aligned over the row: the text leaves
+    -- room. Box style puts the time at the row's end.
     local long = view.render({ { n = 1, prompt = string.rep("word ", 30), reply = "b" } }, { truncate = false })
     long.headings[1].time = "2026-11-11T09:30:00Z"
     st.rendered = long
     local clock = view.clock("2026-11-11T09:30:00Z")
+    st.style = "bar"
     h.eq(vim.fn.strdisplaywidth(row(1)), 60 - #clock - 1)
+    st.style = "box"
+    h.eq(vim.fn.strdisplaywidth(row(1)), 60)
+    h.truthy(row(1):find("… " .. clock .. "$"), row(1))
     st.heading = { time = false }
     h.eq(vim.fn.strdisplaywidth(row(1)), 60)
   end,
@@ -276,31 +281,74 @@ return {
     h.eq(view.clock("yesterday"), nil)
     h.eq(view.clock(nil), nil)
   end,
-  ["show: a bar in the sign column, the time on the prompt heading"] = function()
+  ["show: the left column, box style and bar style"] = function()
     reset()
-    local turns = { { n = 1, prompt = "Hi", reply = "Hello\nthere", time = "2026-11-11T09:30:00Z" } }
+    local turns = {
+      { n = 1, prompt = "Hi", reply = "Hello\nthere", time = "2026-11-11T09:30:00Z" },
+      { n = 2, prompt = "More", reply = "Yes" },
+    }
     local win, buf = show(turns, { bar = "▎" })
-    h.eq(vim.wo[win].signcolumn, "yes:1")
-    local signs, clocks = {}, {}
-    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, require("eunoe.highlight").ns, 0, -1, { details = true })) do
-      local d = m[4]
-      if d.sign_text then
-        signs[#signs + 1] = { m[2], vim.trim(d.sign_text), d.sign_hl_group }
+    h.eq(vim.wo[win].signcolumn, "no")
+    h.truthy(vim.wo[win].statuscolumn:find("statuscolumn", 1, true), "eunoe's statuscolumn")
+    local function column()
+      local out = {}
+      for l = 1, vim.api.nvim_buf_line_count(buf) do
+        out[#out + 1] = (view.left_column(win, l, 0))
       end
-      if d.virt_text_pos == "right_align" then
-        clocks[#clocks + 1] = { m[2], d.virt_text[1][1] }
+      return out
+    end
+    -- 1 · You / Hi / (sep) / 1 · Agent / Hello / there / (sep) / 2 · You / More / (sep) / 2 · Agent / Yes
+    h.eq(
+      column(),
+      { "╭─", "│ ", "╰─", "╭─", "│ ", "│ ", "╰─", "╭─", "│ ", "╰─", "╭─", "│ " }
+    )
+    h.eq({ view.left_column(win, 5, 1) }, { "│ ", "EunoeAgent" }, "wrapped rows too")
+    h.eq((view.left_column(win, 12, -1)), "  ", "virtual lines")
+    vim.cmd("normal o")
+    h.eq((view.left_column(win, 1, 0)), "▎ ", "one-line rows get the bar")
+    vim.cmd("normal o")
+    show(turns, { style = "bar", bar = "▎" })
+    h.eq(column(), { "▎ ", "▎ ", "  ", "▎ ", "▎ ", "▎ ", "  ", "▎ ", "▎ ", "  ", "▎ ", "▎ " })
+    show(turns, { style = "bar", bar = false })
+    h.eq((view.left_column(win, 1, 0)), "", "no bar, no column")
+    reset()
+  end,
+  ["show: the box's borders and the time"] = function()
+    reset()
+    local turns = {
+      { n = 1, prompt = "Hi", reply = "Hello", time = "2026-11-11T09:30:00Z" },
+      { n = 2, prompt = "More", reply = "Yes" },
+    }
+    local _, buf = show(turns, { wrap = 40 })
+    local ns = require("eunoe.highlight").ns
+    local by_row = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+      local d = m[4]
+      local text = d.virt_text and table.concat(vim.tbl_map(function(c)
+        return c[1]
+      end, d.virt_text)) or d.virt_lines and d.virt_lines[1][1][1]
+      if text and text ~= " " then
+        by_row[m[2]] = by_row[m[2]] or {}
+        table.insert(by_row[m[2]], { d.virt_text_pos or "virt_lines", text })
       end
     end
-    h.eq(signs, {
-      { 0, "▎", "EunoeUser" },
-      { 1, "▎", "EunoeUser" },
-      { 3, "▎", "EunoeAgent" },
-      { 4, "▎", "EunoeAgent" },
-      { 5, "▎", "EunoeAgent" },
-    }, "every message line, not the gap")
-    h.eq(clocks, { { 0, view.clock("2026-11-11T09:30:00Z") } })
-    local win2 = show(turns, { bar = false })
-    h.eq(vim.wo[win2].signcolumn, "no")
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    -- The heading row adds up to the box width: " " + heading + eol gap + fill + time.
+    local top = by_row[0][1]
+    h.eq(top[1], "eol")
+    local clock = view.clock("2026-11-11T09:30:00Z")
+    h.truthy(top[2]:find(clock .. "$"), top[2])
+    h.eq(1 + vim.fn.strdisplaywidth(lines[1]) + 1 + vim.fn.strdisplaywidth(top[2]), 41)
+    h.eq(by_row[2][1], { "overlay", string.rep("─", 41) }, "bottom border over the separator")
+    local last = by_row[#lines - 1]
+    h.eq(last[#last], { "virt_lines", "╰─" .. string.rep("─", 41) }, "below the last message")
+    -- In one-line mode the time moves into the row.
+    local st = view.state[buf]
+    local row = table.concat(vim.tbl_map(function(c)
+      return c[1]
+    end, view.message_line(st, st.rendered.headings[1], 40)))
+    h.truthy(row:find(clock .. "$"), row)
+    h.eq(vim.fn.strdisplaywidth(row), 40)
     reset()
   end,
   ["show: lines wrap at the window's width when it is narrower than view.wrap"] = function()
@@ -518,7 +566,7 @@ return {
       h.truthy(text:find("2 · Claude\n", 1, true), text)
       local icons = {}
       for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
-        if m[4].virt_text and m[4].virt_text_pos == "inline" then
+        if m[4].virt_text and m[4].virt_text_pos == "inline" and m[4].virt_text[1][1] ~= " " then
           icons[m[4].virt_text[1][1]] = m[4].virt_text[1][2]
         end
       end

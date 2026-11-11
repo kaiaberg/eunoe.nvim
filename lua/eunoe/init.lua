@@ -123,6 +123,7 @@ function M.open(opts)
       width = o.view.width,
       focus = o.view.focus,
       bar = o.view.bar,
+      style = o.view.style,
       mode = o.view.mode,
       session = { reader = s.reader, id = s.id, label = reader.label },
       heading = o.heading,

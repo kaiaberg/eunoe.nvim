@@ -390,6 +390,12 @@ function M.message_line(st, hd, width)
   if text ~= "" and width - used > 4 then
     push("  " .. clip(text, width - used - 2), "EunoeOneline")
   end
+  -- Bar style draws the time right-aligned over the row; box style puts
+  -- it on the border, which a closed fold hides, so it goes here.
+  if clock and st.style ~= "bar" then
+    push(string.rep(" ", math.max(1, width + 1 - used)), "EunoeOneline")
+    push(clock, "EunoeTime")
+  end
   return chunks
 end
 
@@ -691,12 +697,22 @@ function M.clock(iso, now)
 end
 
 ---@class eunoe.Decorations
----@field bar string|false? Character in the sign column next to each message.
+---@field style "box"|"bar"? A box around each message (default) or a bar next to it.
 ---@field time boolean? The time on the heading lines.
+---@field width integer? Columns of the box, from the left column's end.
 
---- Color the headings and put the speakers' icons before their names, the
---- time at the end of the heading line, and a colored bar next to every
---- line of a message.
+--- Whether line `lnum` is the blank line that separates a message from the
+--- next one (the box's bottom border).
+local function is_separator(rendered, hd, lnum)
+  local section = rendered.sections[hd.section]
+  return lnum == hd.last and section and lnum > section.last and rendered.lines[lnum] == ""
+end
+
+--- Color the headings and put the speakers' icons before their names and
+--- the time at the end of the heading line. In box style, also the top
+--- border's fill after the heading and the bottom border over the blank
+--- line after each message; the left side is in 'statuscolumn'
+--- (|M.statuscolumn()|).
 ---@param buf integer
 ---@param rendered eunoe.Rendered
 ---@param speakers { prompt: eunoe.Speaker, reply: eunoe.Speaker }
@@ -705,17 +721,44 @@ function M.decorate(buf, rendered, speakers, deco)
   deco = deco or {}
   local ns = require("eunoe.highlight").ns
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  for _, h in ipairs(rendered.headings) do
+  local box = deco.style ~= "bar"
+  local width = deco.width or 60
+  for i, h in ipairs(rendered.headings) do
     local sp = speakers[h.role]
     local row = h.line - 1
-    local section = rendered.sections[h.section]
-    if type(deco.bar) == "string" and deco.bar ~= "" and section then
-      for l = h.line, section.last do
-        vim.api.nvim_buf_set_extmark(buf, ns, l - 1, 0, { sign_text = deco.bar, sign_hl_group = sp.hl, priority = 10 })
-      end
-    end
+    local line = rendered.lines[h.line]
     local clock = deco.time ~= false and M.clock(h.time)
-    if clock then
+    if box then
+      -- ╭─ <icon> 38 · You ───────── 14:04   (╭─ is in the statuscolumn)
+      vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
+        virt_text = { { " ", sp.hl } },
+        virt_text_pos = "inline",
+        priority = 199,
+      })
+      local used = 1 + width_of(line) + (h.icon_col and width_of(h.icon_text) or 0)
+      local tail = clock and (width_of(clock) + 1) or 0
+      local fill = math.max(1, width - used - tail - 1)
+      -- `eol` text starts one column after the line: that's the space.
+      local chunks = { { string.rep("─", fill), sp.hl } }
+      if clock then
+        chunks[#chunks + 1] = { " " .. clock, "EunoeTime" }
+      end
+      vim.api.nvim_buf_set_extmark(buf, ns, row, 0, { virt_text = chunks, virt_text_pos = "eol", priority = 200 })
+      -- ╰──────  over the blank line after the message, or below the last one.
+      local bottom = string.rep("─", width)
+      if is_separator(rendered, h, h.last) then
+        vim.api.nvim_buf_set_extmark(buf, ns, h.last - 1, 0, {
+          virt_text = { { bottom, sp.hl } },
+          virt_text_pos = "overlay",
+          priority = 200,
+        })
+      elseif i == #rendered.headings then
+        vim.api.nvim_buf_set_extmark(buf, ns, h.last - 1, 0, {
+          virt_lines = { { { "╰─" .. bottom, sp.hl } } },
+          virt_lines_leftcol = true,
+        })
+      end
+    elseif clock then
       vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
         virt_text = { { clock, "EunoeTime" } },
         virt_text_pos = "right_align",
@@ -737,6 +780,56 @@ function M.decorate(buf, rendered, speakers, deco)
   end
 end
 
+--- The characters of the left column, per row kind and style.
+M.LEFT = {
+  box = { top = "╭─", body = "│ ", bottom = "╰─" },
+}
+
+--- 'statuscolumn' of the eunoe window: the left side of each message's
+--- box (`╭─`, `│ `, `╰─`), or the bar in bar style, in the speaker's
+--- color. Unlike signs, it shows on wrapped rows too. A message folded to
+--- one line gets the bar in both styles.
+---@return string
+function M.statuscolumn()
+  local text, hl = M.left_column(vim.g.statusline_winid, vim.v.lnum, vim.v.virtnum)
+  return hl and ("%#" .. hl .. "#" .. text .. "%*") or text
+end
+
+--- The left column of one screen row: its text and highlight group.
+---@param win integer
+---@param lnum integer
+---@param virtnum integer 0 for a line's first row, more for wrapped rows, less for virtual lines.
+---@return string text, string? hl
+function M.left_column(win, lnum, virtnum)
+  local st = M.state[vim.api.nvim_win_get_buf(win)]
+  if not st or not st.left then
+    return ""
+  end
+  local hd = virtnum >= 0 and M.heading_at(st.rendered, lnum)
+  if not hd or lnum > hd.last then
+    return "  "
+  end
+  local kind
+  if lnum == hd.line and virtnum == 0 then
+    local folded = vim.api.nvim_win_call(win, function()
+      return vim.fn.foldclosed(lnum) == lnum
+    end)
+    kind = folded and "oneline" or "top"
+  elseif is_separator(st.rendered, hd, lnum) then
+    kind = "bottom"
+  else
+    kind = "body"
+  end
+  local bar = (st.bar or "▎") .. " "
+  local text
+  if st.style == "bar" or kind == "oneline" then
+    text = kind == "bottom" and "  " or bar
+  else
+    text = M.LEFT.box[kind]
+  end
+  return text, st.speakers[hd.role].hl
+end
+
 local function set_win_options(win)
   local wo = vim.wo[win]
   wo.foldmethod = "manual"
@@ -746,6 +839,7 @@ local function set_win_options(win)
   wo.number = false
   wo.relativenumber = false
   wo.signcolumn = "no"
+  wo.statuscolumn = "%!v:lua.require'eunoe.view'.statuscolumn()"
   wo.spell = false
   wo.wrap = true
   wo.linebreak = true
@@ -1002,11 +1096,13 @@ end
 
 --- Show rendered turns in the eunoe split, creating it if needed.
 ---@param turns eunoe.Turn[]
----@param opts { session: { reader: string, id: string, label: string? }?, mode: string?, name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
+---@param opts { style: "box"|"bar"?, session: { reader: string, id: string, label: string? }?, mode: string?, name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
 ---@return integer win, integer buf
 function M.show(turns, opts)
   local win, buf = M.current()
-  local has_bar = type(opts.bar) == "string" and opts.bar ~= ""
+  local style = opts.style == "bar" and "bar" or "box"
+  -- The left column: the box's side, or the bar (unless it's off).
+  local has_bar = style == "box" or (type(opts.bar) == "string" and opts.bar ~= "")
   -- Wrap at `view.wrap`, or narrower when the window is: lines Neovim
   -- wraps again are hard to read.
   local wrap = opts.wrap
@@ -1014,6 +1110,9 @@ function M.show(turns, opts)
     local cols = (win and vim.api.nvim_win_get_width(win) or width(opts.width)) - (has_bar and 2 or 0) - 1
     wrap = math.max(20, math.min(wrap, cols))
   end
+  -- The box reaches one column past the widest wrapped line.
+  local box_width = wrap and (wrap + 1)
+    or ((win and vim.api.nvim_win_get_width(win) or width(opts.width)) - (has_bar and 2 or 0) - 1)
   local speakers = opts.speakers or {
     prompt = { hl = "EunoeUser" },
     reply = { hl = "EunoeAgent" },
@@ -1072,6 +1171,9 @@ function M.show(turns, opts)
     speakers = speakers,
     heading = opts.heading,
     mode = opts.mode,
+    style = style,
+    left = has_bar,
+    bar = type(opts.bar) == "string" and opts.bar ~= "" and opts.bar or nil,
     session = opts.session,
     turns = #turns,
     total = math.max(opts.total or 0, #turns),
@@ -1080,7 +1182,11 @@ function M.show(turns, opts)
     open_latest = opts.truncate and opts.truncate.open_latest,
   }
   M.state[buf] = st
-  M.decorate(buf, rendered, speakers, { bar = opts.bar, time = (opts.heading or {}).time })
+  M.decorate(buf, rendered, speakers, {
+    style = style,
+    time = (opts.heading or {}).time,
+    width = box_width,
+  })
   set_keymaps(buf, opts.handlers, opts.keys or require("eunoe.config").defaults.keys)
 
   local prev = vim.api.nvim_get_current_win()
@@ -1089,7 +1195,6 @@ function M.show(turns, opts)
     st.prev_win = prev
   end
   set_win_options(win)
-  vim.wo[win].signcolumn = has_bar and "yes:1" or "no"
   apply_folds(win, st)
   place_cursor(win, st)
   if opts.focus then
