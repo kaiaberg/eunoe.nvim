@@ -33,6 +33,7 @@ nothing anywhere and never changes the transcript.
 - [Commands](#commands)
 - [Mappings](#mappings)
 - [Configuration](#configuration)
+- [Colors](#colors)
 - [Lua API](#lua-api)
 - [Agents](#agents)
 - [Limitations](#limitations)
@@ -44,6 +45,8 @@ nothing anywhere and never changes the transcript.
 - Claude Code, with Neovim as its editor (see [Installation](#installation))
 - `ps`, to find the agent Neovim was started from (on macOS and Linux it's
   always there)
+- Optional: a [Nerd Font](https://www.nerdfonts.com) for the icons in the
+  headings (or `icons = false`)
 
 ## Installation
 
@@ -88,7 +91,7 @@ latest reply:
 
 Can you make the parser skip system reminders?
 
-# 6 · Agent
+# 6 · Claude
 
 Yes. Three changes:
 
@@ -96,8 +99,10 @@ Yes. Three changes:
 ```
 
 Turns are numbered, so "turn 6, point 2" means the same thing to you and
-the agent. The buffer is plain read-only Markdown: search it, yank from
-it, and use your Markdown plugins.
+the agent. On screen, each heading also has an icon and a
+[color](#colors) for its speaker: blue for you, orange for Claude. They
+are drawn on top of the text, so the buffer is plain read-only Markdown:
+search it, yank from it, and use your Markdown plugins.
 
 | Key | Does |
 |---|---|
@@ -226,11 +231,41 @@ require("eunoe").setup({
     -- Leave the newest reply unfolded.
     open_latest = true,
   },
+  -- Icons before the names in the headings (Nerd Font glyphs). false
+  -- turns them off, e.g. without a Nerd Font.
+  icons = {
+    user = "\u{f007}", -- nf-fa-user
+    -- nil: the agent's own icon (Claude Code: nf-cod-claude), or
+    -- nf-md-robot for agents without one.
+    agent = nil,
+  },
 })
 ```
 
+The Claude icon (nf-cod-claude) is only in recent Nerd Fonts releases. If
+it shows as a box while the other icons work, update the font, or use
+the robot instead: `icons = { agent = "\u{f06a9}" }`.
+
 `setup()` warns about unknown options and wrong values, and
 `:checkhealth eunoe` lists them again.
+
+## Colors
+
+The headings are colored with these highlight groups. Colorschemes can
+set them, and so can you (after `:colorscheme`):
+
+| Group | Default |
+|---|---|
+| `EunoeUser` | Your prompts' headings: blue |
+| `EunoeAgent` | Agents without a color of their own: linked to `Title` |
+| `EunoeAgentClaude` | Claude Code's replies: Claude's terracotta orange |
+
+```lua
+vim.api.nvim_set_hl(0, "EunoeUser", { fg = "#7aa2f7", bold = true })
+```
+
+The defaults are mid tones that read on dark and light backgrounds, with
+256-color fallbacks for terminals without true color.
 
 ## Lua API
 
@@ -283,7 +318,9 @@ require("eunoe").register_reader("myagent", {
   read = function(transcript, cb)
     cb({ { n = 1, prompt = "…", reply = "…" } })
   end,
-  -- Optional: label = "My Agent", tested_version = "1.2.3",
+  -- Optional: label = "My Agent" (for messages), heading = "Mine" (name
+  -- in the reply headings), icon = "…", color = "#rrggbb" (its
+  -- EunoeAgentMyagent group), tested_version = "1.2.3",
   -- health = function(health) … end (extra checks for :checkhealth).
 })
 ```

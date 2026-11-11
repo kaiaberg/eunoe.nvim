@@ -112,7 +112,10 @@ function M.open(opts)
     if not showing_all and o.turns and total > o.turns then
       turns = vim.list_slice(turns, total - o.turns + 1)
     end
-    require("eunoe.view").show(turns, {
+    local view = require("eunoe.view")
+    local reader = require("eunoe.readers").get(s.reader) or {}
+    local icons = o.icons
+    view.show(turns, {
       name = ("eunoe://%s/%s"):format(s.reader, s.id),
       total = total,
       truncate = o.truncate,
@@ -120,6 +123,14 @@ function M.open(opts)
       width = o.view.width,
       focus = o.view.focus,
       keys = o.keys,
+      agent = type(reader.heading) == "string" and reader.heading or nil,
+      speakers = {
+        prompt = { hl = "EunoeUser", icon = icons and icons.user },
+        reply = {
+          hl = require("eunoe.highlight").agent_group(s.reader, reader.color),
+          icon = icons and (icons.agent or reader.icon or view.ROBOT),
+        },
+      },
       handlers = {
         close = M.close,
         reload = function()

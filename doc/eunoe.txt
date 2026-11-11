@@ -20,7 +20,8 @@ CONTENTS                                                      *eunoe-contents*
   9. Configuration ............................................ |eunoe-config|
  10. Lua API ..................................................... |eunoe-api|
  11. Readers ................................................. |eunoe-readers|
- 12. Limitations ......................................... |eunoe-limitations|
+ 12. Highlights ........................................... |eunoe-highlights|
+ 13. Limitations ......................................... |eunoe-limitations|
 
 ==============================================================================
 1. INTRODUCTION                                                  *eunoe-intro*
@@ -65,11 +66,15 @@ reply. Each turn has two headings: >markdown
 
   Can you make the parser skip system reminders?
 
-  # 6 · Agent
+  # 6 · Claude
 
   Yes. Three changes: …
 <
 The numbers let you and the agent mean the same turn ("turn 6, point 2").
+The reply heading names the agent ("Agent" if its reader gives no name).
+On screen, each heading has an icon before the name and its speaker's
+color (|eunoe-config-icons|, |eunoe-highlights|). Both are drawn on top of
+the text, so searching for `# 6` and yanking see plain headings.
 The buffer is read-only Markdown: search it, yank from it, and use your
 Markdown plugins. Its name is `eunoe://<reader>/<session id>`.
 
@@ -192,6 +197,10 @@ The defaults: >lua
       reply = nil,
       open_latest = true,
     },
+    icons = {
+      user = "\u{f007}", -- nf-fa-user
+      agent = nil,
+    },
   })
 <
                                                           *eunoe-config-turns*
@@ -226,6 +235,22 @@ truncate ~
     `prompt`        Separate limit for prompts; `nil` uses `chars`.
     `reply`         Separate limit for replies; `nil` uses `chars`.
     `open_latest`   Leave the newest reply unfolded.
+
+                                                          *eunoe-config-icons*
+icons ~
+    Icons before the names in the headings. They are Nerd Font glyphs
+    (https://www.nerdfonts.com); without a Nerd Font they show as boxes,
+    so set `icons = false`. Neovim can't tell which font the terminal
+    uses.
+
+    `user`    Your prompts. Default: nf-fa-user.
+    `agent`   The agent's replies, for every agent. `nil` uses the agent's
+              own icon (Claude Code: nf-cod-claude), or nf-md-robot for
+              agents without one.
+
+    nf-cod-claude is only in recent Nerd Fonts releases. If the Claude
+    icon shows as a box while the others work, update the font or use
+    the robot: `icons = { agent = "\u{f06a9}" }`.
 
 ==============================================================================
 10. LUA API                                                        *eunoe-api*
@@ -293,9 +318,15 @@ read({transcript}, {cb}) ~
     {cb}(`turns`), or {cb}(`nil`, `err`). For a transcript that doesn't
     exist yet, `err` starts with "ENOENT".
 
-Optional fields: `label` (a display name), `tested_version` (the agent
-version the reader was last checked against) and `health`, a function that
-gets |vim.health| and adds checks to |:checkhealth| `eunoe`.
+Optional fields:
+- `label`: a display name, for messages and |:checkhealth|.
+- `heading`: the agent's name in the reply headings ("Agent" without it).
+- `icon`: the icon before that name (|eunoe-config-icons|).
+- `color`: a `#rrggbb` color for the reply headings (|eunoe-highlights|).
+- `tested_version`: the agent version the reader was last checked
+  against.
+- `health`: a function that gets |vim.health| and adds checks to
+  |:checkhealth| `eunoe`.
 
 The nearest agent among Neovim's parents wins across all readers. Readers
 registered under the name of a built-in one replace it; `false` removes a
@@ -316,7 +347,30 @@ checked one, and warns about records of unknown types, lines that aren't
 valid JSON, and transcripts without turns. Please report these.
 
 ==============================================================================
-12. LIMITATIONS                                            *eunoe-limitations*
+12. HIGHLIGHTS                                              *eunoe-highlights*
+
+The headings are colored by speaker. Colorschemes can define the groups,
+and so can you, after any |:colorscheme| command: >lua
+  vim.api.nvim_set_hl(0, "EunoeUser", { fg = "#7aa2f7", bold = true })
+<
+                                                                   *EunoeUser*
+EunoeUser               Your prompts' headings. Default: blue.
+
+                                                                  *EunoeAgent*
+EunoeAgent              The agent's headings, if its reader has no color.
+                        Default: linked to |hl-Title|.
+
+                                                            *EunoeAgentClaude*
+EunoeAgent{Name}        One group per agent, named after its reader:
+                        `EunoeAgentClaude` for Claude Code (default: its
+                        terracotta orange). Without a reader `color`, it
+                        links to |EunoeAgent|.
+
+The defaults are mid tones that read on dark and light backgrounds, with
+256-color fallbacks for terminals without 'termguicolors'.
+
+==============================================================================
+13. LIMITATIONS                                            *eunoe-limitations*
 
 - No live updates. In the `Ctrl+G` editor the agent waits for the prompt
   anyway; next to a running agent, press `R`.

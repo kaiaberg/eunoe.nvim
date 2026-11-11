@@ -13,6 +13,12 @@ M.tested_version = "2.1.322"
 --- Display name, for messages and `:checkhealth`.
 M.label = "Claude Code"
 
+--- Name in the reply headings (`# 6 · Claude`), its icon (nf-cod-claude)
+--- and color (Claude's terracotta, for `EunoeAgentClaude`).
+M.heading = "Claude"
+M.icon = "\u{ec82}"
+M.color = "#D97757"
+
 ---@class eunoe.Turn
 ---@field n integer Turn number, starting at 1.
 ---@field prompt string? The user's prompt; nil when a reply has no prompt (e.g. the first one after compaction).

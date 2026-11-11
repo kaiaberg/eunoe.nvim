@@ -12,6 +12,7 @@ local M = {}
 ---@field line integer 1-based line of the heading.
 ---@field turn integer Turn number.
 ---@field role "prompt"|"reply"
+---@field name_col integer 0-based byte column where the speaker's name starts.
 
 ---@class eunoe.Rendered
 ---@field lines string[]
@@ -157,7 +158,7 @@ end
 
 --- Render turns into lines, with folds for long sections.
 ---@param turns eunoe.Turn[]
----@param opts { truncate: table|false, total: integer?, wrap: integer|false|nil }
+---@param opts { truncate: table|false, total: integer?, wrap: integer|false|nil, agent: string? }
 ---@return eunoe.Rendered
 function M.render(turns, opts)
   local out = { lines = {}, folds = {}, headings = {}, sections = {}, line_info = {} }
@@ -167,8 +168,9 @@ function M.render(turns, opts)
     lines[#lines + 1] = l
   end
   local function section(turn, role, text, latest)
-    add(("# %d · %s"):format(turn.n, role == "prompt" and "You" or "Agent"))
-    out.headings[#out.headings + 1] = { line = #lines, turn = turn.n, role = role }
+    local prefix = ("# %d · "):format(turn.n)
+    add(prefix .. (role == "prompt" and "You" or opts.agent or "Agent"))
+    out.headings[#out.headings + 1] = { line = #lines, turn = turn.n, role = role, name_col = #prefix }
     add("")
     local source = vim.split(text, "\n", { plain = true })
     local body, info = M.wrap(source, opts.wrap)
@@ -276,6 +278,39 @@ local function apply_folds(win, st)
       end
     end
   end)
+end
+
+--- Default icons: nf-md-robot for agents without their own.
+M.ROBOT = "\u{f06a9}"
+
+---@class eunoe.Speaker
+---@field icon string|false? Icon before the name; false or nil for none.
+---@field hl string Highlight group of the heading line.
+
+--- Color the headings and put the speakers' icons before their names.
+---@param buf integer
+---@param rendered eunoe.Rendered
+---@param speakers { prompt: eunoe.Speaker, reply: eunoe.Speaker }
+function M.decorate(buf, rendered, speakers)
+  local ns = require("eunoe.highlight").ns
+  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  for _, h in ipairs(rendered.headings) do
+    local sp = speakers[h.role]
+    local row = h.line - 1
+    -- Above Treesitter's heading colors (priority 100).
+    vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
+      end_col = #rendered.lines[h.line],
+      hl_group = sp.hl,
+      priority = 200,
+    })
+    if type(sp.icon) == "string" and sp.icon ~= "" then
+      vim.api.nvim_buf_set_extmark(buf, ns, row, h.name_col, {
+        virt_text = { { sp.icon .. " ", sp.hl } },
+        virt_text_pos = "inline",
+        priority = 200,
+      })
+    end
+  end
 end
 
 local function set_win_options(win)
@@ -522,10 +557,11 @@ end
 
 --- Show rendered turns in the eunoe split, creating it if needed.
 ---@param turns eunoe.Turn[]
----@param opts { name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table? }
+---@param opts { name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }? }
 ---@return integer win, integer buf
 function M.show(turns, opts)
-  local rendered = M.render(turns, { truncate = opts.truncate, total = opts.total, wrap = opts.wrap })
+  local rendered =
+    M.render(turns, { truncate = opts.truncate, total = opts.total, wrap = opts.wrap, agent = opts.agent })
   local win, buf = M.current()
   if not buf then
     buf = vim.api.nvim_create_buf(false, true)
@@ -544,6 +580,11 @@ function M.show(turns, opts)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rendered.lines)
   vim.bo[buf].modifiable = false
   vim.bo[buf].modified = false
+  require("eunoe.highlight").setup()
+  M.decorate(buf, rendered, opts.speakers or {
+    prompt = { hl = "EunoeUser" },
+    reply = { hl = "EunoeAgent" },
+  })
 
   local fold_at = {}
   for _, f in ipairs(rendered.folds) do

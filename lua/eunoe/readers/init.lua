@@ -22,6 +22,9 @@ local M = {}
 ---@field health fun(health: table)? Optional checks for `:checkhealth eunoe` (gets `vim.health`).
 ---@field tested_version string? Agent version the reader was last checked against.
 ---@field label string? Display name of the agent (defaults to the reader's name).
+---@field heading string? Name in the reply headings (default "Agent").
+---@field icon string? Icon before that name (default nf-md-robot).
+---@field color string? `#rrggbb` color of the reply headings (group `EunoeAgent<Name>`).
 
 local BUILTIN = { claude = "eunoe.readers.claude" }
 local BUILTIN_ORDER = { "claude" }

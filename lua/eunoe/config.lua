@@ -41,6 +41,15 @@ M.defaults = {
     --- fold still exists, so `zc` closes it.
     open_latest = true,
   },
+  --- Icons before the names in the headings (Nerd Font glyphs). `false`
+  --- turns them off, e.g. without a Nerd Font.
+  icons = {
+    --- Your prompts: nf-fa-user.
+    user = "\u{f007}",
+    --- The agent's replies; nil uses the agent's own icon (Claude Code:
+    --- nf-cod-claude), or nf-md-robot for agents without one.
+    agent = nil,
+  },
 }
 
 M.options = vim.deepcopy(M.defaults)
@@ -57,6 +66,9 @@ end, "true or false")
 local LIMIT = opt(function(v)
   return v == nil or whole(v)
 end, "a positive whole number")
+local ICON = opt(function(v)
+  return v == nil or type(v) == "string"
+end, "a string")
 local KEY = opt(function(v)
   return v == false or (type(v) == "string" and v ~= "")
 end, "a key (string) or false")
@@ -82,6 +94,10 @@ local SCHEMA = {
   truncate = {
     or_false = true,
     fields = { chars = LIMIT, prompt = LIMIT, reply = LIMIT, open_latest = BOOL },
+  },
+  icons = {
+    or_false = true,
+    fields = { user = ICON, agent = ICON },
   },
 }
 
@@ -132,8 +148,10 @@ function M.setup(opts)
     vim.notify("eunoe: setup(): " .. table.concat(M.problems, "; "), vim.log.levels.WARN)
   end
   local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
-  if opts.truncate == false then
-    merged.truncate = false
+  for _, group in ipairs({ "truncate", "icons" }) do
+    if opts[group] == false then
+      merged[group] = false
+    end
   end
   M.options = merged
 end

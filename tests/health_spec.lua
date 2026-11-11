@@ -82,6 +82,12 @@ return {
     h.eq(config.validate({}), {})
     h.eq(config.validate(vim.deepcopy(config.defaults)), {})
     h.eq(config.validate({ truncate = false, view = { wrap = false }, keys = { quote = false } }), {})
+    h.eq(config.validate({ icons = false }), {})
+    h.eq(config.validate({ icons = { agent = "A" } }), {})
+    h.eq(config.validate({ icons = { user = 1 } }), { "icons.user: expected a string, got 1" })
+    config.setup({ icons = false })
+    h.eq(config.options.icons, false)
+    config.setup({})
   end,
   ["validate: wrong types and unknown names"] = function()
     h.eq(config.validate({ turns = 0, view = { wrap = 10, size = 3 }, trunacte = {}, keys = { quote = 1 } }), {

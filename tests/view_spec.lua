@@ -93,7 +93,10 @@ return {
   ["render: headings, blank lines, no fold without truncation"] = function()
     local r = view.render({ { n = 1, prompt = "Hi", reply = "Hello\nthere" } }, { truncate = false })
     h.eq(r.lines, { "# 1 · You", "", "Hi", "", "# 1 · Agent", "", "Hello", "there" })
-    h.eq(r.headings, { { line = 1, turn = 1, role = "prompt" }, { line = 5, turn = 1, role = "reply" } })
+    h.eq(r.headings, {
+      { line = 1, turn = 1, role = "prompt", name_col = 7 },
+      { line = 5, turn = 1, role = "reply", name_col = 7 },
+    })
     h.eq(r.folds, {})
     h.eq(
       r.sections[2],
@@ -176,6 +179,33 @@ return {
     h.eq(vim.api.nvim_buf_get_lines(buf2, 0, 1, false)[1], "# 1 · You")
     reset()
   end,
+  ["render: the agent's heading name, Agent by default"] = function()
+    local r = view.render({ { n = 3, prompt = "Hi", reply = "Hello" } }, { truncate = false, agent = "Claude" })
+    h.eq(r.lines[1], "# 3 · You")
+    h.eq(r.lines[5], "# 3 · Claude")
+  end,
+  ["show: headings get colors and icons as extmarks, the text stays plain"] = function()
+    reset()
+    local _, buf = show({ { n = 1, prompt = "Hi", reply = "Hello" } }, {
+      agent = "Bot",
+      speakers = { prompt = { hl = "EunoeUser", icon = "U" }, reply = { hl = "EunoeAgent", icon = false } },
+    })
+    h.eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), { "# 1 · You", "", "Hi", "", "# 1 · Bot", "", "Hello" })
+    local marks = vim.api.nvim_buf_get_extmarks(buf, require("eunoe.highlight").ns, 0, -1, { details = true })
+    local got = vim.tbl_map(function(m)
+      local d = m[4]
+      return { m[2], m[3], d.hl_group or false, d.virt_text and d.virt_text[1][1] or false, d.end_col or false }
+    end, marks)
+    table.sort(got, function(a, b)
+      return a[1] * 100 + a[2] < b[1] * 100 + b[2] or (a[1] == b[1] and a[2] == b[2] and a[3] ~= false)
+    end)
+    h.eq(got, {
+      { 0, 0, "EunoeUser", false, 10 },
+      { 0, 7, false, "U ", false },
+      { 4, 0, "EunoeAgent", false, 10 },
+    })
+    reset()
+  end,
   ["keys: ]] and [[ jump between turns, q closes"] = function()
     reset()
     local win, buf = show(TURNS, { truncate = false })
@@ -219,6 +249,14 @@ return {
       h.eq(vim.api.nvim_buf_get_name(buf), "eunoe://claude/abc-123")
       local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
       h.truthy(text:find("# 2 · You\n\nsay hi again", 1, true), text)
+      h.truthy(text:find("# 2 · Claude\n", 1, true), text)
+      local icons = {}
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+        if m[4].virt_text then
+          icons[m[4].virt_text[1][1]] = m[4].virt_text[1][2]
+        end
+      end
+      h.eq(icons, { ["\u{f007} "] = "EunoeUser", ["\u{ec82} "] = "EunoeAgentClaude" })
       vim.cmd("Eunoe")
       h.eq(view.current(), nil, "second :Eunoe closes")
       -- After a /clear: the sessions file points at an id without transcript.
