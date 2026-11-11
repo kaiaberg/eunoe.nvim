@@ -12,6 +12,13 @@ M.groups = {
   EunoeUser = { fg = "#5C8FD6", ctermfg = 68, bold = true },
   --- The agent's headings, unless its reader has a color.
   EunoeAgent = { link = "Title" },
+  --- The start of a message in one-line mode.
+  EunoeOneline = { link = "Normal" },
+  --- Closed folds in the eunoe window (it maps `Folded` to this group):
+  --- one-line rows look like plain lines.
+  EunoeFolded = { link = "Normal" },
+  --- The "… 1,615 more characters" line of truncated text.
+  EunoeTruncated = { link = "Comment" },
 }
 
 -- Agent groups defined so far, name → reader color (or false).

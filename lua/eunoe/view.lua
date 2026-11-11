@@ -13,6 +13,8 @@ local M = {}
 ---@field turn integer Turn number.
 ---@field role "prompt"|"reply"
 ---@field name_col integer 0-based byte column where the speaker's name starts.
+---@field last integer Last line of the message fold (the blank line after the message included).
+---@field section integer Index into `sections`.
 
 ---@class eunoe.Rendered
 ---@field lines string[]
@@ -170,7 +172,8 @@ function M.render(turns, opts)
   local function section(turn, role, text, latest)
     local prefix = ("# %d · "):format(turn.n)
     add(prefix .. (role == "prompt" and "You" or opts.agent or "Agent"))
-    out.headings[#out.headings + 1] = { line = #lines, turn = turn.n, role = role, name_col = #prefix }
+    local heading = { line = #lines, turn = turn.n, role = role, name_col = #prefix }
+    out.headings[#out.headings + 1] = heading
     add("")
     local source = vim.split(text, "\n", { plain = true })
     local body, info = M.wrap(source, opts.wrap)
@@ -191,6 +194,8 @@ function M.render(turns, opts)
       end
     end
     add("")
+    heading.section = #out.sections
+    heading.last = #lines
   end
 
   if #turns == 0 then
@@ -216,6 +221,9 @@ function M.render(turns, opts)
   if lines[#lines] == "" then
     lines[#lines] = nil
   end
+  for _, hd in ipairs(out.headings) do
+    hd.last = math.min(hd.last, #lines)
+  end
   return out
 end
 
@@ -227,14 +235,84 @@ local function group(n)
   return (s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))
 end
 
---- Fold text: how much is hidden.
+--- A message's text as one line: whitespace collapsed, code fences and
+--- leading Markdown markers (`#`, `>`) left out.
+---@param lines string[]
+---@return string
+function M.flatten(lines)
+  local parts = {}
+  for _, line in ipairs(lines) do
+    if not is_fence(line) then
+      local t = vim.trim(line):gsub("^#+%s+", ""):gsub("^>[>%s]*", "")
+      if t ~= "" then
+        parts[#parts + 1] = t
+      end
+    end
+  end
+  return (table.concat(parts, " "):gsub("%s+", " "))
+end
+
+--- Cut `text` to `width` display columns, with "…" when it's cut.
+local function clip(text, width)
+  if width_of(text) <= width then
+    return text
+  end
+  if width < 1 then
+    return ""
+  end
+  local n = vim.fn.strchars(text)
+  -- Cut by characters until it fits; wide characters can take two columns.
+  local keep = math.min(n, width - 1)
+  while keep > 0 and width_of(vim.fn.strcharpart(text, 0, keep)) > width - 1 do
+    keep = keep - 1
+  end
+  return vim.trim(vim.fn.strcharpart(text, 0, keep)) .. "…"
+end
+
+--- The closed message fold, in one-line mode: the heading with its icon
+--- and color, then the start of the message.
+---@param st table
+---@param hd eunoe.Heading
+---@param width integer Columns for the whole line.
+---@return [string, string][]
+function M.message_line(st, hd, width)
+  local sp = st.speakers[hd.role]
+  local line = st.rendered.lines[hd.line]
+  local chunks, used = {}, 0
+  local function push(text, hl)
+    chunks[#chunks + 1] = { text, hl }
+    used = used + width_of(text)
+  end
+  push(line:sub(1, hd.name_col), sp.hl)
+  if type(sp.icon) == "string" and sp.icon ~= "" then
+    push(sp.icon .. " ", sp.hl)
+  end
+  push(line:sub(hd.name_col + 1), sp.hl)
+  local text = M.flatten(st.rendered.sections[hd.section].lines)
+  if text ~= "" and width - used > 4 then
+    push("  " .. clip(text, width - used - 2), "EunoeOneline")
+  end
+  return chunks
+end
+
+--- Fold text: a message in one-line mode, or how much a truncation fold
+--- hides.
 function M.foldtext()
   local st = M.state[vim.api.nvim_get_current_buf()]
-  local fold = st and st.fold_at[vim.v.foldstart]
+  local start = vim.v.foldstart
+  local hd = st and st.heading_at[start]
+  if hd then
+    local width = vim.api.nvim_win_get_width(0)
+    if st.wrap then
+      width = math.min(width, st.wrap)
+    end
+    return M.message_line(st, hd, width)
+  end
+  local fold = st and st.fold_at[start]
   if not fold then
     return vim.fn.foldtext()
   end
-  return ("… %s more characters (za to expand)"):format(group(fold.chars))
+  return { { ("… %s more characters (za to expand)"):format(group(fold.chars)), "EunoeTruncated" } }
 end
 
 local function find_win(buf)
@@ -266,18 +344,91 @@ local function width(spec)
   return math.max(20, math.min(w, cols - 20))
 end
 
+--- Fold levels of the modes: one line per message, the default
+--- (messages open, long text folded), everything open.
+M.ONELINE, M.DEFAULT, M.ALL = 0, 1, 2
+
+-- The fold level kept across reloads and reopening, and the one `oneline`
+-- goes back to.
+M.level = M.DEFAULT
+local back_to = M.DEFAULT
+
+--- Set the fold level (the mode) of the eunoe window. In the default mode
+--- the newest reply's truncation fold is opened (`truncate.open_latest`).
+---@param win integer
+---@param level integer
+function M.set_level(win, level)
+  local st = M.state[vim.api.nvim_win_get_buf(win)]
+  vim.wo[win].foldlevel = level
+  M.level = level
+  if st and level == M.DEFAULT and st.open_latest then
+    vim.api.nvim_win_call(win, function()
+      for _, f in ipairs(st.rendered.folds) do
+        if f.latest then
+          vim.cmd(("silent! %dfoldopen"):format(f.first))
+        end
+      end
+    end)
+  end
+end
+
+--- Scroll `win` so that its lines fill the window, with as many as fit
+--- above the end of the buffer, keeping the cursor visible. Without this,
+--- one-line mode at the end of the buffer shows one line and empty space.
+local function fill(win)
+  vim.api.nvim_win_call(win, function()
+    local height = vim.api.nvim_win_get_height(win)
+    -- The highest top line that still shows the end of the buffer.
+    local lnum, rows, top = vim.fn.line("$"), 0, nil
+    while lnum >= 1 do
+      local start = vim.fn.foldclosed(lnum)
+      lnum = start ~= -1 and start or lnum
+      rows = rows + vim.api.nvim_win_text_height(win, { start_row = lnum - 1, end_row = lnum - 1 }).all
+      if rows > height then
+        break
+      end
+      top, lnum = lnum, lnum - 1
+    end
+    local view = vim.fn.winsaveview()
+    if top and top < view.topline then
+      -- The cursor stays visible: it was below the old top line.
+      vim.fn.winrestview({ topline = top })
+    end
+  end)
+end
+
+--- Switch between one line per message and the mode before it. The
+--- cursor stays on its message: one-line mode fills the window, the other
+--- modes put the message at the top.
+---@param win integer?
+function M.toggle_oneline(win)
+  win = win or vim.api.nvim_get_current_win()
+  local level = vim.wo[win].foldlevel
+  if level > M.ONELINE then
+    back_to = level
+    M.set_level(win, M.ONELINE)
+    fill(win)
+  else
+    M.set_level(win, back_to)
+    vim.api.nvim_win_call(win, function()
+      vim.cmd("normal! zt")
+    end)
+  end
+end
+
 local function apply_folds(win, st)
   vim.api.nvim_win_call(win, function()
     vim.cmd("silent! normal! zE")
+    -- Truncation folds first: an Ex range inside a closed fold would
+    -- grow to the whole fold. The message folds then wrap around them.
     for _, f in ipairs(st.rendered.folds) do
       vim.cmd(("%d,%dfold"):format(f.first, f.last))
     end
-    for _, f in ipairs(st.rendered.folds) do
-      if f.latest and st.open_latest then
-        vim.cmd(("silent! %dfoldopen"):format(f.first))
-      end
+    for _, hd in ipairs(st.rendered.headings) do
+      vim.cmd(("%d,%dfold"):format(hd.line, hd.last))
     end
   end)
+  M.set_level(win, M.level)
 end
 
 --- Default icons: nf-md-robot for agents without their own.
@@ -328,6 +479,7 @@ local function set_win_options(win)
   wo.list = false
   wo.winfixwidth = true
   wo.fillchars = "fold: ,eob: "
+  wo.winhighlight = "Folded:EunoeFolded"
 end
 
 --- Jump to the next (`dir` = 1) or previous (-1) turn.
@@ -539,6 +691,9 @@ local function set_keymaps(buf, handlers, keys)
     M.jump(buf, -1)
   end, "eunoe: previous turn")
   map("n", "reload", handlers.reload, "eunoe: reload")
+  map("n", "oneline", function()
+    M.toggle_oneline()
+  end, "eunoe: one line per message")
   map("x", "quote", M.quote_visual, "eunoe: quote into the prompt")
 end
 
@@ -553,6 +708,9 @@ local function place_cursor(win, st)
     vim.api.nvim_win_set_cursor(win, { h.line, 0 })
     vim.cmd("normal! zt")
   end)
+  if vim.wo[win].foldlevel == M.ONELINE then
+    fill(win)
+  end
 end
 
 --- Show rendered turns in the eunoe split, creating it if needed.
@@ -581,21 +739,32 @@ function M.show(turns, opts)
   vim.bo[buf].modifiable = false
   vim.bo[buf].modified = false
   require("eunoe.highlight").setup()
-  M.decorate(buf, rendered, opts.speakers or {
-    prompt = { hl = "EunoeUser" },
-    reply = { hl = "EunoeAgent" },
-  })
 
-  local fold_at = {}
+  local fold_at, heading_at = {}, {}
   for _, f in ipairs(rendered.folds) do
     fold_at[f.first] = f
+  end
+  for _, hd in ipairs(rendered.headings) do
+    heading_at[hd.line] = hd
+  end
+  local speakers = opts.speakers or {
+    prompt = { hl = "EunoeUser" },
+    reply = { hl = "EunoeAgent" },
+  }
+  if win then
+    -- Keep the mode the user is in (`o`, `zM`, `zR` …) across a reload.
+    M.level = vim.wo[win].foldlevel
   end
   local st = {
     rendered = rendered,
     fold_at = fold_at,
+    heading_at = heading_at,
+    speakers = speakers,
+    wrap = opts.wrap,
     open_latest = opts.truncate and opts.truncate.open_latest,
   }
   M.state[buf] = st
+  M.decorate(buf, rendered, speakers)
   set_keymaps(buf, opts.handlers, opts.keys or require("eunoe.config").defaults.keys)
 
   local prev = vim.api.nvim_get_current_win()
@@ -620,6 +789,7 @@ function M.close()
     return
   end
   local prev = M.state[buf] and M.state[buf].prev_win
+  M.level = vim.wo[win].foldlevel
   if #vim.api.nvim_tabpage_list_wins(0) == 1 then
     vim.cmd("enew")
   else

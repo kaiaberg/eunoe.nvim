@@ -94,8 +94,8 @@ return {
     local r = view.render({ { n = 1, prompt = "Hi", reply = "Hello\nthere" } }, { truncate = false })
     h.eq(r.lines, { "# 1 · You", "", "Hi", "", "# 1 · Agent", "", "Hello", "there" })
     h.eq(r.headings, {
-      { line = 1, turn = 1, role = "prompt", name_col = 7 },
-      { line = 5, turn = 1, role = "reply", name_col = 7 },
+      { line = 1, turn = 1, role = "prompt", name_col = 7, last = 4, section = 1 },
+      { line = 5, turn = 1, role = "reply", name_col = 7, last = 8, section = 2 },
     })
     h.eq(r.folds, {})
     h.eq(
@@ -204,6 +204,67 @@ return {
       { 0, 7, false, "U ", false },
       { 4, 0, "EunoeAgent", false, 10 },
     })
+    reset()
+  end,
+  ["flatten: one line, without fences and Markdown markers"] = function()
+    h.eq(
+      view.flatten({ "## Plan", "", "> quoted  text", "```lua", "x = 1", "```", "- item" }),
+      "Plan quoted text x = 1 - item"
+    )
+  end,
+  ["oneline: o folds every message to one line and back, the cursor stays"] = function()
+    reset()
+    view.level = view.DEFAULT
+    local win, buf =
+      show(TURNS, { speakers = { prompt = { hl = "EunoeUser", icon = "U" }, reply = { hl = "EunoeAgent" } } })
+    local st = view.state[buf]
+    local hd = st.rendered.headings
+    -- The first reply, inside its text.
+    vim.api.nvim_win_set_cursor(win, { hd[2].line + 3, 0 })
+    vim.cmd("normal o")
+    h.eq(vim.wo[win].foldlevel, view.ONELINE)
+    for _, x in ipairs(hd) do
+      h.eq(vim.fn.foldclosed(x.line), x.line, "message folded")
+      h.eq(vim.fn.foldclosedend(x.line), x.last)
+    end
+    h.eq(vim.fn.foldclosed(vim.fn.line(".")), hd[2].line, "cursor on the same message")
+    local text = vim.fn.foldtextresult(hd[1].line)
+    h.eq(text, "# 1 · U You  First?")
+    local reply = vim.fn.foldtextresult(hd[2].line)
+    h.truthy(reply:find("^# 1 · Agent  a1 x+ a2"), reply)
+    h.truthy(vim.fn.strdisplaywidth(reply) <= 60, "fits the window: " .. reply)
+    h.truthy(reply:find("…$"), reply)
+    st.wrap = 40
+    h.eq(vim.fn.strdisplaywidth(vim.fn.foldtextresult(hd[2].line)), 40, "capped at view.wrap")
+    st.wrap = nil
+    vim.cmd("normal j")
+    h.eq(vim.fn.foldclosed(vim.fn.line(".")), hd[3].line, "j goes to the next message")
+    vim.cmd("normal o")
+    h.eq(vim.wo[win].foldlevel, view.DEFAULT)
+    h.eq(vim.fn.line("."), hd[3].line, "back on the same message")
+    local folds = st.rendered.folds
+    h.eq(vim.fn.foldclosed(folds[1].first), folds[1].first, "truncation folds closed again")
+    h.eq(vim.fn.foldclosed(folds[#folds].first), -1, "newest reply open again")
+    reset()
+  end,
+  ["oneline: the mode survives a reload, zR and zM included"] = function()
+    reset()
+    view.level = view.DEFAULT
+    local win = show(TURNS)
+    vim.cmd("normal o")
+    show(TURNS)
+    h.eq(vim.wo[win].foldlevel, view.ONELINE, "after R")
+    vim.cmd("normal zR")
+    show(TURNS)
+    h.eq(vim.wo[win].foldlevel >= view.ALL, true, "zR kept")
+    vim.cmd("normal o")
+    h.eq(vim.wo[win].foldlevel, view.ONELINE)
+    vim.cmd("normal o")
+    h.eq(vim.wo[win].foldlevel >= view.ALL, true, "o goes back to the mode before")
+    view.close()
+    local win2 = show(TURNS)
+    h.eq(vim.wo[win2].foldlevel >= view.ALL, true, "kept across closing")
+    view.level = view.DEFAULT
     reset()
   end,
   ["keys: ]] and [[ jump between turns, q closes"] = function()

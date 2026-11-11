@@ -14,6 +14,7 @@ CONTENTS                                                      *eunoe-contents*
   3. The conversation split .................................... |eunoe-split|
   4. Which session it shows .................................. |eunoe-session|
   5. Long prompts and replies ............................... |eunoe-truncate|
+     One line per message .................................. |eunoe-oneline|
   6. Quoting into the prompt ................................... |eunoe-quote|
   7. Commands ............................................... |eunoe-commands|
   8. Mappings ............................................... |eunoe-mappings|
@@ -87,12 +88,13 @@ Keys in the split (buffer-local, see |eunoe-config-keys|):
   `]]` `[[`     Next / previous turn heading.
   `R`         Reload: read the session again, e.g. after the agent wrote
               more, or after `/clear` or `/resume`.
+  `o`         One line per message, and back (|eunoe-oneline|).
   `q`         Close the split.
   `>`         Visual mode: quote the selection into the prompt
               (|eunoe-quote|).
 
-The usual fold commands open and close truncated text: |za|, |zo|, |zc|,
-|zR|, |zM|.
+The usual fold commands open and close truncated text and messages: |za|,
+|zo|, |zc|, |zR| (everything open), |zM| (one line per message).
 
 ==============================================================================
 4. WHICH SESSION IT SHOWS                                      *eunoe-session*
@@ -126,6 +128,29 @@ tables stay as they are, list items indent their continuation lines, and
 quotes repeat `>`. Yanking with |y| copies these line breaks; quoting
 (|eunoe-quote|) does not.
 
+                                                               *eunoe-oneline*
+One line per message ~
+
+Every message is a fold, from its heading to the blank line after it,
+with the truncation fold inside. The split has three modes, which are fold
+levels ('foldlevel'):
+
+  One line per message    0   `o` or |zM|
+  Default                 1   messages open, long text folded
+  Everything open         2   |zR|
+
+`o` switches to one line per message and back to the mode before. The
+cursor stays on its message. In one-line mode each message shows its
+heading and the start of its text, up to |eunoe-config-wrap| characters
+or the window width: >
+  # 6 · You  Can you make the parser skip system reminders?
+  # 6 · Claude  Yes. Three changes: skip the tags, keep the order, and d…
+<
+Use it to skim a long session or find a message, then press `o` or |za|
+on it. Searching with |/| opens the messages that match ('foldopen').
+The mode is kept when you press `R` or open the split again. In one-line
+mode the newest reply is folded too.
+
 ==============================================================================
 6. QUOTING INTO THE PROMPT                                       *eunoe-quote*
 
@@ -139,7 +164,9 @@ cursor then waits on the line after the quote, ready for your comment: >
 <
 The quote uses the original text, not the folded or wrapped lines on
 screen. A characterwise selection (|v|) quotes exactly what is selected, a
-linewise one (|V|) whole lines. Headings are left out.
+linewise one (|V|) whole lines. Headings are left out. A selection over
+closed folds quotes everything in them, e.g. whole messages in one-line
+mode.
 
 Quote short passages. The agent already has the conversation, and every
 quoted line is sent again.
@@ -190,6 +217,7 @@ The defaults: >lua
       prev_turn = "[[",
       reload = "R",
       quote = ">",
+      oneline = "o",
     },
     truncate = {
       chars = 800,
@@ -224,7 +252,8 @@ view.wrap ~
                                                            *eunoe-config-keys*
 keys ~
     Keys in the split, buffer-local: `close`, `next_turn`, `prev_turn`,
-    `reload`, and `quote` (Visual mode). `false` leaves a key unmapped.
+    `reload`, `quote` (Visual mode) and `oneline` (|eunoe-oneline|).
+    `false` leaves a key unmapped.
 
                                                        *eunoe-config-truncate*
 truncate ~
@@ -365,6 +394,19 @@ EunoeAgent{Name}        One group per agent, named after its reader:
                         `EunoeAgentClaude` for Claude Code (default: its
                         terracotta orange). Without a reader `color`, it
                         links to |EunoeAgent|.
+
+                                                                *EunoeOneline*
+EunoeOneline            The start of a message in one-line mode
+                        (|eunoe-oneline|). Default: linked to |hl-Normal|.
+
+                                                                 *EunoeFolded*
+EunoeFolded             Closed folds in the eunoe window, which maps
+                        |hl-Folded| to this group, so one-line rows look
+                        like plain lines. Default: linked to |hl-Normal|.
+
+                                                              *EunoeTruncated*
+EunoeTruncated          The "… 1,615 more characters" line of truncated
+                        text. Default: linked to `Comment`.
 
 The defaults are mid tones that read on dark and light backgrounds, with
 256-color fallbacks for terminals without 'termguicolors'.

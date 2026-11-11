@@ -29,6 +29,7 @@ nothing anywhere and never changes the transcript.
 - [Usage](#usage)
 - [Which session it shows](#which-session-it-shows)
 - [Long prompts and replies](#long-prompts-and-replies)
+- [One line per message](#one-line-per-message)
 - [Quoting into the prompt](#quoting-into-the-prompt)
 - [Commands](#commands)
 - [Mappings](#mappings)
@@ -109,6 +110,7 @@ search it, yank from it, and use your Markdown plugins.
 | `]]` / `[[` | Next / previous turn |
 | `za`, `zR`, `zM` … | Open and close [truncated text](#long-prompts-and-replies) |
 | `>` | Visual mode: [quote](#quoting-into-the-prompt) the selection into the prompt |
+| `o` | [One line per message](#one-line-per-message), and back |
 | `R` | Reload, e.g. after the agent wrote more |
 | `q` | Close |
 
@@ -151,6 +153,32 @@ breaks; quoting doesn't.
 Both are [configurable](#configuration): `truncate = false` and
 `view = { wrap = false }` turn them off.
 
+## One line per message
+
+Press `o` to fold every message to one line, its heading and the start
+of its text, and again to go back. The cursor stays on its message. Use
+it to skim a long session or find a message, then open it with `o` or
+`za`:
+
+```
+# 6 · You  Can you make the parser skip system reminders?
+# 6 · Claude  Yes. Three changes: skip the tags, keep the order, and d…
+# 7 · You  Why drop empty turns?
+```
+
+Each message is a fold, so the split has three modes, and they're just
+fold levels:
+
+| Mode | Keys |
+|---|---|
+| One line per message | `o`, `zM` |
+| Default: messages open, long text folded | `o` from one-line mode |
+| Everything open | `zR` |
+
+Searching with `/` opens the messages that match. The mode is kept when
+you press `R` or open the split again. Lines are cut at `view.wrap` (80)
+characters or the window width.
+
 ## Quoting into the prompt
 
 Select text in the eunoe split and press `>`. eunoe inserts it as a
@@ -166,7 +194,8 @@ Why drop empty turns?
 
 The quote uses the original text, not the folded or wrapped lines on
 screen. A characterwise selection (`v`) quotes exactly what you selected,
-a linewise one (`V`) whole lines.
+a linewise one (`V`) whole lines. A selection over closed folds quotes
+everything in them, e.g. whole messages in one-line mode.
 
 Quote short passages. The agent already has the conversation, and every
 quoted line is sent again.
@@ -218,6 +247,7 @@ require("eunoe").setup({
     prev_turn = "[[",
     reload = "R",
     quote = ">", -- Visual mode
+    oneline = "o", -- one line per message, and back
   },
   -- Long prompts and replies show their beginning; the rest goes into a
   -- closed fold. false turns truncation off.
@@ -251,7 +281,7 @@ the robot instead: `icons = { agent = "\u{f06a9}" }`.
 
 ## Colors
 
-The headings are colored with these highlight groups. Colorschemes can
+The split uses these highlight groups. Colorschemes can
 set them, and so can you (after `:colorscheme`):
 
 | Group | Default |
@@ -259,6 +289,9 @@ set them, and so can you (after `:colorscheme`):
 | `EunoeUser` | Your prompts' headings: blue |
 | `EunoeAgent` | Agents without a color of their own: linked to `Title` |
 | `EunoeAgentClaude` | Claude Code's replies: Claude's terracotta orange |
+| `EunoeOneline` | The text in one-line mode: linked to `Normal` |
+| `EunoeFolded` | Closed folds in the split (it maps `Folded` to this): linked to `Normal` |
+| `EunoeTruncated` | The "… 1,615 more characters" line: linked to `Comment` |
 
 ```lua
 vim.api.nvim_set_hl(0, "EunoeUser", { fg = "#7aa2f7", bold = true })

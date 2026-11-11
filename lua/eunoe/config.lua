@@ -26,6 +26,8 @@ M.defaults = {
     reload = "R",
     --- Visual mode: quote the selection into the prompt window.
     quote = ">",
+    --- One line per message, and back.
+    oneline = "o",
   },
   --- Long prompts and replies show their beginning; the rest goes into a
   --- closed fold. `false` turns truncation off.
@@ -89,7 +91,7 @@ local SCHEMA = {
     },
   },
   keys = {
-    fields = { close = KEY, next_turn = KEY, prev_turn = KEY, reload = KEY, quote = KEY },
+    fields = { close = KEY, next_turn = KEY, prev_turn = KEY, reload = KEY, quote = KEY, oneline = KEY },
   },
   truncate = {
     or_false = true,
