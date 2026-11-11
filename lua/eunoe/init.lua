@@ -56,18 +56,32 @@ function M.load(cb)
       if not s.transcript then
         return cb(s, {})
       end
-      local reader = session.readers()[s.reader]
-      reader.read(s.transcript, function(turns, err)
-        if turns then
+      local reader = require("eunoe.readers").get(s.reader)
+      if not reader then
+        return notify(("reader %q is no longer registered"):format(s.reader), vim.log.levels.ERROR)
+      end
+      local ok, err = pcall(reader.read, s.transcript, function(turns, rerr)
+        if type(turns) == "table" then
           return cb(s, turns)
         end
-        if tostring(err):find("^ENOENT") then
+        if tostring(rerr):find("^ENOENT") then
           return cb(s, {})
         end
-        notify(("can't read %s: %s"):format(s.transcript, err), vim.log.levels.ERROR)
+        notify(("can't read %s: %s"):format(s.transcript, tostring(rerr)), vim.log.levels.ERROR)
       end)
+      if not ok then
+        notify(("reader %q failed: %s"):format(s.reader, tostring(err)), vim.log.levels.ERROR)
+      end
     end)
   end)
+end
+
+--- Register a reader for another agent, replace one (including the
+--- built-in `claude`), or remove one with `false`. See `eunoe.readers`.
+---@param name string
+---@param reader eunoe.Reader|false
+function M.register_reader(name, reader)
+  require("eunoe.readers").register(name, reader)
 end
 
 --- The turns of the current session, oldest first.

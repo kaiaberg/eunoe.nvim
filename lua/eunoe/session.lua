@@ -114,17 +114,26 @@ function M.alive(ctx, pid, start)
   return vim.uv.kill(pid, 0) == 0
 end
 
---- The built-in readers, in detection order.
----@return table<string, table>, string[]
+--- The registered readers, in detection order.
+---@return table<string, eunoe.Reader>, string[]
 function M.readers()
-  return { claude = require("eunoe.readers.claude") }, { "claude" }
+  return require("eunoe.readers").all()
+end
+
+--- Whether a reader's result looks like a session.
+local function valid(s)
+  return type(s) == "table"
+    and type(s.id) == "string"
+    and type(s.pid) == "number"
+    and (s.via == "parent" or s.via == "cwd")
+    and (s.transcript == nil or type(s.transcript) == "string")
 end
 
 --- Sessions for a context: the one among Neovim's ancestors if any reader
 --- finds one (nearest ancestor wins), else all sessions matched by cwd,
 --- newest first.
 ---@param ctx eunoe.Context
----@param readers table<string, table>? Name → reader; defaults to the built-ins.
+---@param readers table<string, eunoe.Reader>? Name → reader; defaults to the registered ones.
 ---@param order string[]? Reader names in detection order.
 ---@return eunoe.Session[]
 function M.find(ctx, readers, order)
@@ -139,21 +148,27 @@ function M.find(ctx, readers, order)
     local ok, found = pcall(reader.detect, ctx)
     if ok and type(found) == "table" then
       for _, s in ipairs(found) do
-        s.reader = s.reader or name
-        if s.via == "parent" then
-          -- Nearest ancestor wins: the index of its pid in the chain.
-          local depth = math.huge
-          for i, p in ipairs(ctx.chain) do
-            if p == s.pid then
-              depth = i
-              break
+        if valid(s) then
+          s.reader = name
+          -- Nearest ancestor wins: the index of its pid in the chain. A
+          -- "parent" session whose pid isn't an ancestor counts as by cwd.
+          local depth
+          if s.via == "parent" then
+            for i, p in ipairs(ctx.chain) do
+              if p == s.pid then
+                depth = i
+                break
+              end
             end
           end
-          if not best or depth < best_depth then
-            best, best_depth = s, depth
+          if depth then
+            if not best or depth < best_depth then
+              best, best_depth = s, depth
+            end
+          else
+            s.via = "cwd"
+            by_cwd[#by_cwd + 1] = s
           end
-        else
-          by_cwd[#by_cwd + 1] = s
         end
       end
     end
