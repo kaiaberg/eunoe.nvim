@@ -6,6 +6,13 @@
 --- else: unknown record types are counted, not rejected.
 local M = {}
 
+--- The Claude Code version the parser and session lookup were last
+--- checked against (`:checkhealth eunoe` shows it next to the running one).
+M.tested_version = "2.1.322"
+
+--- Display name, for messages and `:checkhealth`.
+M.label = "Claude Code"
+
 ---@class eunoe.Turn
 ---@field n integer Turn number, starting at 1.
 ---@field prompt string? The user's prompt; nil when a reply has no prompt (e.g. the first one after compaction).
@@ -298,6 +305,7 @@ local function session_of(ctx, info, pid, via)
     via = via,
     name = type(info.name) == "string" and info.name or nil,
     updated = type(info.updatedAt) == "number" and info.updatedAt or nil,
+    version = type(info.version) == "string" and info.version or nil,
   }
 end
 
@@ -328,6 +336,24 @@ function M.detect(ctx)
     end
   end
   return found
+end
+
+--- Checks for `:checkhealth eunoe`: where Claude Code keeps its files.
+---@param health table `vim.health`
+function M.health(health)
+  local root = M.root()
+  local from_env = vim.env.CLAUDE_CONFIG_DIR and vim.env.CLAUDE_CONFIG_DIR ~= ""
+  local where = from_env and "(from $CLAUDE_CONFIG_DIR)" or "(set $CLAUDE_CONFIG_DIR to use another one)"
+  if vim.fn.isdirectory(root) == 0 then
+    return health.warn(("Claude Code config directory %s doesn't exist %s"):format(root, where))
+  end
+  health.ok(("Claude Code config directory: %s %s"):format(root, where))
+  local dir = root .. "/sessions"
+  if vim.fn.isdirectory(dir) == 0 then
+    return health.warn(("%s doesn't exist: Claude Code hasn't run yet, or is older than eunoe supports"):format(dir))
+  end
+  local files = vim.fn.glob(dir .. "/*.json", true, true)
+  health.ok(("%d sessions file(s) in %s (Claude Code writes one per process)"):format(#files, dir))
 end
 
 --- Read and parse a transcript file asynchronously.

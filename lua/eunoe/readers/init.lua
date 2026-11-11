@@ -19,6 +19,9 @@ local M = {}
 ---@class eunoe.Reader
 ---@field detect fun(ctx: eunoe.Context): eunoe.Session[]
 ---@field read fun(transcript: string, cb: fun(turns: eunoe.Turn[]?, err: any))
+---@field health fun(health: table)? Optional checks for `:checkhealth eunoe` (gets `vim.health`).
+---@field tested_version string? Agent version the reader was last checked against.
+---@field label string? Display name of the agent (defaults to the reader's name).
 
 local BUILTIN = { claude = "eunoe.readers.claude" }
 local BUILTIN_ORDER = { "claude" }
@@ -87,6 +90,14 @@ end
 function M.get(name)
   load_builtins()
   return registry[name] or nil
+end
+
+--- Whether `reader` is the built-in reader of that name.
+---@param name string
+---@param reader eunoe.Reader?
+---@return boolean
+function M.is_builtin(name, reader)
+  return BUILTIN[name] ~= nil and package.loaded[BUILTIN[name]] == reader
 end
 
 --- Forget all registrations (for tests).

@@ -45,9 +45,92 @@ M.defaults = {
 
 M.options = vim.deepcopy(M.defaults)
 
+local function whole(v)
+  return type(v) == "number" and v >= 1 and v == math.floor(v)
+end
+local function opt(check, expect)
+  return { check = check, expect = expect }
+end
+local BOOL = opt(function(v)
+  return type(v) == "boolean"
+end, "true or false")
+local LIMIT = opt(function(v)
+  return v == nil or whole(v)
+end, "a positive whole number")
+local KEY = opt(function(v)
+  return v == false or (type(v) == "string" and v ~= "")
+end, "a key (string) or false")
+
+-- What each option may be. A table with `fields` is a group of options;
+-- `or_false` lets the whole group be `false`.
+local SCHEMA = {
+  turns = opt(whole, "a positive whole number"),
+  view = {
+    fields = {
+      width = opt(function(v)
+        return type(v) == "number" and v > 0
+      end, "a fraction below 1 or a number of columns"),
+      focus = BOOL,
+      wrap = opt(function(v)
+        return v == false or (whole(v) and v >= 20)
+      end, "false or a number of columns (20 or more)"),
+    },
+  },
+  keys = {
+    fields = { close = KEY, next_turn = KEY, prev_turn = KEY, reload = KEY, quote = KEY },
+  },
+  truncate = {
+    or_false = true,
+    fields = { chars = LIMIT, prompt = LIMIT, reply = LIMIT, open_latest = BOOL },
+  },
+}
+
+--- Problems in user options: wrong types and unknown names.
+---@param opts table
+---@return string[]
+function M.validate(opts)
+  local problems = {}
+  local function walk(value, schema, path)
+    if schema.fields then
+      if value == false and schema.or_false then
+        return
+      end
+      if type(value) ~= "table" then
+        problems[#problems + 1] = ("%s: expected a table%s, got %s"):format(
+          path,
+          schema.or_false and " or false" or "",
+          vim.inspect(value)
+        )
+        return
+      end
+      for k, v in pairs(value) do
+        local sub = schema.fields[k]
+        local name = path == "" and tostring(k) or (path .. "." .. tostring(k))
+        if sub then
+          walk(v, sub, name)
+        else
+          problems[#problems + 1] = ("%s: unknown option"):format(name)
+        end
+      end
+    elseif not schema.check(value) then
+      problems[#problems + 1] = ("%s: expected %s, got %s"):format(path, schema.expect, vim.inspect(value))
+    end
+  end
+  walk(opts, { fields = SCHEMA }, "")
+  table.sort(problems)
+  return problems
+end
+
+--- Problems found by the last `setup()`, for `:checkhealth`.
+M.problems = {}
+
 ---@param opts table?
 function M.setup(opts)
   opts = opts or {}
+  M.problems = M.validate(opts)
+  if #M.problems > 0 then
+    vim.notify("eunoe: setup(): " .. table.concat(M.problems, "; "), vim.log.levels.WARN)
+  end
   local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
   if opts.truncate == false then
     merged.truncate = false

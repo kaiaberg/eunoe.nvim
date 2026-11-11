@@ -25,6 +25,7 @@ local M = {}
 ---@field via "parent"|"cwd" How it was found.
 ---@field name string? Display name, if the agent has one.
 ---@field updated integer? Last update in ms since the epoch, for sorting.
+---@field version string? The agent's version, for `:checkhealth`.
 
 --- Parse `ps -A -o pid= -o ppid= -o lstart=` output.
 ---@param out string
@@ -62,35 +63,49 @@ function M.realpath(path)
   return vim.uv.fs_realpath(path) or path
 end
 
---- Build the context asynchronously. Runs `ps` once (in UTC, so start
---- times compare with what agents record); without `ps` the chain holds
---- only the direct parent and `procs` is nil.
----@param cb fun(ctx: eunoe.Context)
-function M.context(cb)
+local PS = { "ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "lstart=" }
+-- In UTC, so start times compare with what agents record.
+local PS_OPTS = { text = true, env = { TZ = "UTC" } }
+
+--- The context from a finished `ps` run (nil when it couldn't run). Without
+--- a usable process table the chain holds only the direct parent and
+--- `procs` is nil.
+---@param res vim.SystemCompleted?
+---@return eunoe.Context
+local function build_context(res)
   local pid = vim.fn.getpid()
   local cwd = M.realpath(vim.fn.getcwd())
-  local function fallback()
-    local ppid = vim.uv.os_getppid()
-    cb({ pid = pid, chain = ppid and ppid > 1 and { ppid } or {}, cwd = cwd })
+  if res and res.code == 0 and res.stdout then
+    local procs = M.parse_ps(res.stdout)
+    if procs[pid] then
+      return { pid = pid, chain = M.ancestors(procs, pid), cwd = cwd, procs = procs }
+    end
   end
+  local ppid = vim.uv.os_getppid()
+  return { pid = pid, chain = ppid and ppid > 1 and { ppid } or {}, cwd = cwd }
+end
+
+--- Build the context asynchronously (runs `ps` once).
+---@param cb fun(ctx: eunoe.Context)
+function M.context(cb)
   local ok = pcall(
     vim.system,
-    { "ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "lstart=" },
-    { text = true, env = { TZ = "UTC" } },
+    PS,
+    PS_OPTS,
     vim.schedule_wrap(function(res)
-      if res.code ~= 0 or not res.stdout then
-        return fallback()
-      end
-      local procs = M.parse_ps(res.stdout)
-      if not procs[pid] then
-        return fallback()
-      end
-      cb({ pid = pid, chain = M.ancestors(procs, pid), cwd = cwd, procs = procs })
+      cb(build_context(res))
     end)
   )
   if not ok then
-    fallback()
+    cb(build_context(nil))
   end
+end
+
+--- Build the context synchronously, for `:checkhealth`.
+---@return eunoe.Context
+function M.context_sync()
+  local ok, job = pcall(vim.system, PS, PS_OPTS)
+  return build_context(ok and job:wait(3000) or nil)
 end
 
 --- Whether `pid` is alive and, when both start times are known, the same
