@@ -6,4 +6,4 @@ test:
 	$(NVIM) -n --clean -l tests/run.lua
 
 fmt:
-	stylua lua/ tests/
+	stylua lua/ plugin/ tests/
