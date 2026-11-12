@@ -21,3 +21,8 @@
   own after mode and zoom changes.
 - `WinResized` doesn't fire under `nvim -l`. Tests call
   `require("eunoe.view").on_resized(wins)` directly.
+
+## Window size
+
+- `nvim_win_get_height()` counts the 'winbar' row, and the eunoe window has
+  one (the hint line). Use `vim.fn.winheight()` for text-row math.
