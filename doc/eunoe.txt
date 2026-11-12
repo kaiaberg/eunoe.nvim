@@ -62,8 +62,11 @@ format looks changed.
 3. THE CONVERSATION SPLIT                                        *eunoe-split*
 
 |:Eunoe| opens a vertical split on the right with every turn of the
-session (or the last few, |eunoe-config-turns|), newest at the bottom, the
-cursor on the latest reply. Each message sits in a box with a heading: >
+session (or the last few, |eunoe-config-turns|), newest at the bottom,
+scrolled to the latest reply. Your cursor stays where it was, e.g. in the
+prompt; go to the split with |CTRL-W_l| to use its keys or quote from it
+(or set |eunoe-config-view| `focus`). Each message sits in a box with a
+heading: >
   ╭─ 6 · You ─────────────────────────────────────────── 09:30
   │ Can you make the parser skip system reminders?
   ╰────────────────────────────────────────────────────────────
@@ -91,6 +94,9 @@ Markdown plugins. Its name is `eunoe://<reader>/<session id>`.
 
 Before the first prompt of a session there is no transcript yet, and the
 split says "No conversation yet".
+
+When you're done with the prompt, `:wq` as usual: the split closes with it
+and Neovim exits (|eunoe-config-view| `auto_close`).
 
                                                                   *eunoe-keys*
 Keys in the split (buffer-local, see |eunoe-config-keys|):
@@ -235,7 +241,8 @@ The defaults: >lua
     turns = nil,
     view = {
       width = 0.4,
-      focus = true,
+      focus = false,
+      auto_close = true,
       wrap = 80,
       style = "box",
       bar = "▎",
@@ -283,7 +290,17 @@ view.width ~
     number of columns.
 
 view.focus ~
-    Move the cursor into the split when it opens.
+    Move the cursor into the split when it opens. Off by default: the
+    cursor stays where it was, e.g. in the prompt.
+
+view.auto_close ~
+    When you quit the last other window of the tab page (|:q|, |:wq|,
+    |ZZ|, `:q!`), close the split too, so Neovim exits, or the tab page
+    closes if there are others. Without it, `:wq` in the `Ctrl+G` editor
+    leaves Neovim running with only the split, and the agent keeps
+    waiting. Only quitting counts: |:close| and |:only| don't. Unsaved
+    changes in hidden buffers still stop Neovim from exiting, as for any
+    |:q|.
 
 view.style ~
     `"box"`: a box around each message, open on the right, in the

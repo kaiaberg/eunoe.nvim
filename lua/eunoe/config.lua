@@ -10,8 +10,14 @@ M.defaults = {
     --- Width of the split: a fraction of the editor's columns (< 1) or a
     --- number of columns.
     width = 0.4,
-    --- Move the cursor into the split when it opens.
-    focus = true,
+    --- Move the cursor into the split when it opens. By default it stays
+    --- where it was, e.g. in the prompt.
+    focus = false,
+    --- When you quit the last other window of the tab page (`:q`, `:wq`,
+    --- `ZZ`), close the split too, so Neovim exits (or the tab page
+    --- closes). Without it, `:wq` in the `Ctrl+G` editor leaves Neovim
+    --- running with only the split, and the agent keeps waiting.
+    auto_close = true,
     --- Break lines longer than this many characters into several lines (at
     --- spaces; not in code blocks or tables), so long paragraphs can be
     --- truncated too. `false` keeps lines as they are. Copying with `y`
@@ -117,6 +123,7 @@ local SCHEMA = {
         return type(v) == "number" and v > 0
       end, "a fraction below 1 or a number of columns"),
       focus = BOOL,
+      auto_close = BOOL,
       mode = opt(function(v)
         return v == "default" or v == "oneline" or v == "expanded"
       end, '"default", "oneline" or "expanded"'),

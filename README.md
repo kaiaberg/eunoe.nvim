@@ -85,8 +85,9 @@ eunoe finds from where you run it.
 ## Usage
 
 Press `Ctrl+G` in Claude Code and run `:Eunoe`. A split opens on the
-right with every turn of the session, newest at the bottom, the cursor on the
-latest reply:
+right with every turn of the session, newest at the bottom, scrolled to
+the latest reply. Your cursor stays in the prompt; `Ctrl-w l` takes you
+to the split to use its keys or quote from it:
 
 ```
 ╭─ 6 · You ─────────────────────────────────────────── 09:30
@@ -127,7 +128,9 @@ from it, and use your Markdown plugins.
 | `R` | Reload, e.g. after the agent wrote more |
 | `q` | Close |
 
-`:Eunoe` again closes the split.
+`:Eunoe` again closes the split. When you're done with the prompt,
+`:wq` as usual: the split closes with it and Neovim exits
+(`view.auto_close`).
 
 Before the first prompt of a session there is nothing to show yet; eunoe
 says "No conversation yet".
@@ -255,8 +258,13 @@ require("eunoe").setup({
     -- Width of the split: a fraction of the editor's columns (< 1) or a
     -- number of columns.
     width = 0.4,
-    -- Move the cursor into the split when it opens.
-    focus = true,
+    -- Move the cursor into the split when it opens. By default it stays
+    -- where it was, e.g. in the prompt.
+    focus = false,
+    -- When you quit the last other window (:q, :wq, ZZ), close the split
+    -- too, so Neovim exits and the agent gets your prompt. :close and
+    -- :only don't count.
+    auto_close = true,
     -- Break lines longer than this at spaces (not in code blocks or
     -- tables), so long paragraphs can be truncated too. false keeps
     -- lines as they are.

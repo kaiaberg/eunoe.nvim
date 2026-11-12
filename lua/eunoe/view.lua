@@ -1096,7 +1096,7 @@ end
 
 --- Show rendered turns in the eunoe split, creating it if needed.
 ---@param turns eunoe.Turn[]
----@param opts { style: "box"|"bar"?, session: { reader: string, id: string, label: string? }?, mode: string?, name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
+---@param opts { auto_close: boolean?, style: "box"|"bar"?, session: { reader: string, id: string, label: string? }?, mode: string?, name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
 ---@return integer win, integer buf
 function M.show(turns, opts)
   local win, buf = M.current()
@@ -1200,8 +1200,75 @@ function M.show(turns, opts)
   if opts.focus then
     vim.api.nvim_set_current_win(win)
   end
+  M.auto_close = opts.auto_close ~= false
+  M.setup_auto_close()
   M.update_status(buf)
   return win, buf
+end
+
+--- Quit Neovim (or the tab page) when only eunoe windows would be left:
+--- `:wq` in the `Ctrl+G` editor must end the editor, which the agent
+--- waits for. Only quitting counts (`:q`, `:wq`, `:x`, `ZZ`, `:q!`, via
+--- `QuitPre`), not `:close` or `:only`, and only in a non-eunoe window.
+M.auto_close = true
+
+-- Replaced in tests: what runs when the last window to keep is eunoe's.
+function M._quit()
+  -- No bang: unsaved hidden buffers still stop it, as for any `:q`.
+  pcall(vim.cmd, "quit")
+end
+
+--- After a window was quit: if the current tab page has only eunoe
+--- windows left (floating ones aside), close them, or quit Neovim when it
+--- is the last tab page.
+function M.close_if_alone()
+  local wins = vim.tbl_filter(function(w)
+    return vim.api.nvim_win_get_config(w).relative == ""
+  end, vim.api.nvim_tabpage_list_wins(0))
+  if #wins == 0 then
+    return
+  end
+  for _, w in ipairs(wins) do
+    if not M.state[vim.api.nvim_win_get_buf(w)] then
+      return
+    end
+  end
+  if #vim.api.nvim_list_tabpages() > 1 then
+    vim.cmd("tabclose")
+  else
+    vim.api.nvim_set_current_win(wins[1])
+    M._quit()
+  end
+end
+
+local auto_close_set = false
+
+function M.setup_auto_close()
+  if auto_close_set then
+    return
+  end
+  auto_close_set = true
+  local group = vim.api.nvim_create_augroup("eunoe.auto_close", { clear = true })
+  local quitting = false
+  vim.api.nvim_create_autocmd("QuitPre", {
+    group = group,
+    callback = function()
+      quitting = M.auto_close and not M.state[vim.api.nvim_get_current_buf()]
+      -- A quit that fails (unsaved changes) closes no window: forget it.
+      vim.schedule(function()
+        quitting = false
+      end)
+    end,
+  })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = group,
+    callback = function()
+      if quitting then
+        quitting = false
+        vim.schedule(M.close_if_alone)
+      end
+    end,
+  })
 end
 
 --- Close the eunoe split in the current tab page and return to the window

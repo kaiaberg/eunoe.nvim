@@ -520,6 +520,76 @@ return {
     h.eq(view.state[buf].prev_win, prev)
     reset()
   end,
+  ["show: focus = false leaves the cursor in the window it came from"] = function()
+    reset()
+    local prev = vim.api.nvim_get_current_win()
+    local win, buf = show(TURNS, { focus = false })
+    h.eq(vim.api.nvim_get_current_win(), prev)
+    local hd = view.state[buf].rendered.headings
+    h.eq(vim.api.nvim_win_get_cursor(win)[1], hd[#hd].line, "the split's cursor is on the newest reply")
+    reset()
+  end,
+  ["auto_close: quitting the last other window quits, the rest doesn't"] = function()
+    reset()
+    local quits = 0
+    local real = view._quit
+    view._quit = function()
+      quits = quits + 1
+    end
+    local ok, err = pcall(function()
+      local function settle()
+        vim.wait(50, function()
+          return false
+        end)
+      end
+      -- :q in the window eunoe was opened from: eunoe quits too.
+      local main = vim.api.nvim_get_current_win()
+      vim.cmd("vsplit")
+      local other = vim.api.nvim_get_current_win()
+      show(TURNS, { focus = false })
+      vim.api.nvim_set_current_win(main)
+      vim.cmd("quit")
+      settle()
+      h.eq(quits, 0, "another window is still open")
+      vim.api.nvim_set_current_win(other)
+      vim.cmd("quit")
+      settle()
+      h.eq(quits, 1, "only eunoe was left")
+      -- :close and :only don't count, nor quitting eunoe itself.
+      reset()
+      vim.cmd("vsplit")
+      show(TURNS, { focus = false })
+      vim.cmd("close")
+      settle()
+      h.eq(quits, 1, ":close")
+      local win = view.current()
+      vim.api.nvim_set_current_win(win)
+      vim.cmd("only")
+      settle()
+      h.eq(quits, 1, ":only")
+      -- view.auto_close = false
+      reset()
+      show(TURNS, { focus = false, auto_close = false })
+      vim.cmd("quit")
+      settle()
+      h.eq(quits, 1, "auto_close = false")
+      -- With another tab page, only this tab page closes.
+      reset()
+      vim.cmd("tabnew")
+      local tabs = #vim.api.nvim_list_tabpages()
+      show(TURNS, { focus = false })
+      vim.cmd("quit")
+      settle()
+      h.eq(#vim.api.nvim_list_tabpages(), tabs - 1, "the tab page closed")
+      h.eq(quits, 1, "Neovim keeps running")
+    end)
+    view._quit = real
+    vim.cmd("silent! tabonly")
+    reset()
+    if not ok then
+      error(err, 0)
+    end
+  end,
   ["keys: ]] and [[ jump between turns, q closes"] = function()
     reset()
     local win, buf = show(TURNS, { truncate = false })

@@ -122,6 +122,7 @@ function M.open(opts)
       wrap = o.view.wrap,
       width = o.view.width,
       focus = o.view.focus,
+      auto_close = o.view.auto_close,
       bar = o.view.bar,
       style = o.view.style,
       mode = o.view.mode,
