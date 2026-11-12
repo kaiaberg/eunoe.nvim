@@ -529,7 +529,8 @@ end
 --- one-line mode at the end of the buffer shows one line and empty space.
 local function fill(win)
   vim.api.nvim_win_call(win, function()
-    local height = vim.api.nvim_win_get_height(win)
+    -- Text rows: nvim_win_get_height() also counts the 'winbar'.
+    local height = vim.fn.winheight(win)
     -- The highest top line that still shows the end of the buffer.
     local lnum, rows, top = vim.fn.line("$"), 0, nil
     while lnum >= 1 do
@@ -1120,7 +1121,10 @@ local function set_keymaps(buf, handlers, keys)
   map("x", "quote", M.quote_visual, "eunoe: quote into the prompt")
 end
 
---- Put the cursor on the newest reply's heading, at the top of the window.
+--- Put the cursor on the newest reply's heading, at the top of the
+--- window. A reply shorter than the window would leave empty space below
+--- it, so earlier messages fill the window above it instead, with the end
+--- of the buffer at the bottom; a longer one keeps its heading at the top.
 local function place_cursor(win, st)
   local headings = st.rendered.headings
   local h = headings[#headings]
@@ -1131,9 +1135,7 @@ local function place_cursor(win, st)
     vim.api.nvim_win_set_cursor(win, { h.line, 0 })
     vim.cmd("normal! zt")
   end)
-  if vim.wo[win].foldlevel == M.ONELINE then
-    fill(win)
-  end
+  fill(win)
 end
 
 --- Where a line is, in terms that survive rendering at another width: a

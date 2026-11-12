@@ -275,6 +275,46 @@ return {
       vim.opt.rtp:remove(tmp)
     end)
   end,
+  ["open: a short newest reply ends at the bottom, a long one starts at the top"] = function()
+    with_columns(200, function()
+      local many = {}
+      for i = 1, 15 do
+        many[i] = { n = i, prompt = "question " .. i, reply = "answer " .. i }
+      end
+      local win = view.show(many, {
+        name = "eunoe://test/" .. tostring(math.random(1e9)),
+        truncate = false,
+        wrap = 80,
+        focus = true,
+        handlers = { close = view.close, reload = function() end },
+      })
+      local function rows()
+        return vim.api.nvim_win_call(win, function()
+          return { top = vim.fn.line("w0"), bottom = vim.fn.line("w$"), last = vim.fn.line("$") }
+        end)
+      end
+      local r = rows()
+      h.eq(r.bottom, r.last, "the end of the buffer is on screen")
+      h.truthy(r.top > 1, "earlier messages fill the window")
+      -- No empty rows below the end: one line more at the top wouldn't fit.
+      local text_rows = vim.api.nvim_win_text_height(win, { start_row = r.top - 1, end_row = r.last - 1 }).all
+      local above = vim.api.nvim_win_text_height(win, { start_row = r.top - 2, end_row = r.top - 2 }).all
+      h.truthy(text_rows + above > vim.fn.winheight(win), "the window is full")
+      h.eq(vim.api.nvim_get_current_line(), "15 · Agent", "the cursor is on the newest reply")
+      view.close()
+
+      many[15].reply = table.concat(vim.split(string.rep("line\n", 60), "\n"), "\n")
+      win = view.show(many, {
+        name = "eunoe://test/" .. tostring(math.random(1e9)),
+        truncate = false,
+        wrap = 80,
+        focus = true,
+        handlers = { close = view.close, reload = function() end },
+      })
+      h.eq(vim.api.nvim_get_current_line(), "15 · Agent")
+      h.eq(vim.fn.line("w0"), vim.fn.line("."), "a long reply starts at the top")
+    end)
+  end,
   ["auto_open: opens for a parent agent, the cursor stays; quiet otherwise"] = function()
     reset()
     local eunoe, config = require("eunoe"), require("eunoe.config")
