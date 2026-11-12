@@ -131,7 +131,7 @@ return {
   ["render: folds per section, separate limits, latest marked"] = function()
     local r = view.render(TURNS, { truncate = { chars = 100, prompt = 1000 } })
     h.eq(#r.folds, 2, "two long replies; the long prompt is under its own limit")
-    h.eq(r.folds[1], { first = 8, last = 14, chars = 6 * 43 + 44 + 6 }) -- lines a4..a10
+    h.eq(r.folds[1], { first = 8, last = 14, chars = 6 * 43 + 44 + 6, section = 2 }) -- lines a4..a10
     h.eq(r.folds[2].latest, true)
   end,
   ["show: a read-only Markdown split with closed folds"] = function()

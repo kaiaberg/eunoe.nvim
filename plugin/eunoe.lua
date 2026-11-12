@@ -9,6 +9,9 @@ local subcommands = {
   all = function()
     require("eunoe").open({ all = true })
   end,
+  zoom = function()
+    require("eunoe").zoom()
+  end,
   mode = function(name)
     if not name then
       return vim.notify("eunoe: mode " .. require("eunoe").mode())
@@ -41,6 +44,15 @@ end, {
     return vim.tbl_filter(function(s)
       return s:find(lead, 1, true) == 1
     end, choices)
+  end,
+})
+
+-- `view.auto_open`: after startup, so setup() in your config has run.
+vim.api.nvim_create_autocmd("VimEnter", {
+  group = vim.api.nvim_create_augroup("eunoe.auto_open", { clear = true }),
+  once = true,
+  callback = function()
+    require("eunoe").auto_open()
   end,
 })
 

@@ -54,6 +54,10 @@ Claude Code opens the editor from `$VISUAL`, then `$EDITOR`, so set: >sh
 |<Plug>(eunoe-toggle)|: >lua
   vim.keymap.set("n", "<leader>e", "<Plug>(eunoe-toggle)")
 <
+To open the split by itself when Neovim starts from an agent (`Ctrl+G`),
+set `view.auto_open` (|eunoe-config-view|): >lua
+  require("eunoe").setup({ view = { auto_open = true } })
+<
 Run |:checkhealth| `eunoe` to check the setup. It also shows which session
 eunoe finds from where you run it, and warns when the agent's transcript
 format looks changed.
@@ -95,6 +99,26 @@ Markdown plugins. Its name is `eunoe://<reader>/<session id>`.
 Before the first prompt of a session there is no transcript yet, and the
 split says "No conversation yet".
 
+The split is as wide as the text: |eunoe-config-wrap| plus the box's left
+side and a margin, 83 columns by default (|eunoe-config-view| `width`).
+When you resize it, the text is wrapped again to fit, and never wider
+than `view.wrap`.
+
+                                                                  *eunoe-zoom*
+Code blocks and tables aren't wrapped, so a long code line may not fit.
+`gz` zooms the split to 90% of the editor's width (`view.zoom`), and back
+to the width it had. Prose still wraps at `view.wrap`, and the boxes grow
+to the widest line. Resizing the split by hand ends the zoom.
+
+                                                                 *eunoe-hints*
+The line at the top of the split lists its keys, with the current mode and
+the zoom highlighted. It is the window's 'winbar', so it stays in place
+when you scroll: >
+   o one-line  O expanded  gz zoom  ]] [[ turns  > quote  q close  g? help
+<
+Hints that don't fit are left out from the end; `g?` always shows. Set
+`view.hints = false` to turn the line off.
+
 When you're done with the prompt, `:wq` as usual: the split closes with it
 and Neovim exits (|eunoe-config-view| `auto_close`).
 
@@ -106,6 +130,8 @@ Keys in the split (buffer-local, see |eunoe-config-keys|):
               more, or after `/clear` or `/resume`.
   `o`         One line per message, and back (|eunoe-modes|).
   `O`         Everything open, and back.
+  `gz`        Zoom the split, and back (|eunoe-zoom|).
+  `g?`        This list.
   `q`         Close the split.
   `>`         Visual mode: quote the selection into the prompt
               (|eunoe-quote|).
@@ -206,6 +232,10 @@ quoted line is sent again.
                         when |eunoe-config-turns| is set. `R` keeps showing
                         all of them.
 
+                                                                 *:Eunoe-zoom*
+:Eunoe zoom             Zoom the split, and back (|eunoe-zoom|), opening it
+                        zoomed if it is closed.
+
                                                                  *:Eunoe-mode*
 :Eunoe mode [{mode}]    Switch to `default`, `oneline` or `expanded`
                         (|eunoe-modes|), opening the split if it is closed.
@@ -240,9 +270,12 @@ The defaults: >lua
   require("eunoe").setup({
     turns = nil,
     view = {
-      width = 0.4,
+      width = nil,
+      zoom = 0.9,
       focus = false,
+      auto_open = false,
       auto_close = true,
+      hints = true,
       wrap = 80,
       style = "box",
       bar = "▎",
@@ -257,6 +290,8 @@ The defaults: >lua
       oneline = "o",
       expanded = "O",
       cycle = false,
+      zoom = "gz",
+      help = "g?",
     },
     truncate = {
       chars = 800,
@@ -287,11 +322,27 @@ turns ~
                                                            *eunoe-config-view*
 view.width ~
     Width of the split: a fraction of the editor's columns (below 1) or a
-    number of columns.
+    number of columns. `nil` fits the text: `view.wrap` plus 3 columns
+    (the box's left side and a margin), or 40% when `view.wrap` is
+    `false`. At most the editor's width minus 20 columns.
+
+view.zoom ~
+    Width of the zoomed split (|eunoe-zoom|): a fraction of the editor's
+    columns (below 1) or a number of columns. At least 10 columns are left
+    for the other windows, so you can see they are still there.
 
 view.focus ~
     Move the cursor into the split when it opens. Off by default: the
     cursor stays where it was, e.g. in the prompt.
+
+view.auto_open ~
+    Open the split when Neovim starts from an agent, i.e. when an agent is
+    among Neovim's parent processes (|eunoe-session|): `Ctrl+G`, but also
+    `! nvim` typed in Claude Code. Otherwise nothing happens and nothing
+    is reported, also when only a session in the current directory
+    matches. The cursor stays in the file you edit, whatever `focus` says.
+    eunoe must be loaded at startup: a plugin manager that loads it on
+    |:Eunoe| alone never runs it.
 
 view.auto_close ~
     When you quit the last other window of the tab page (|:q|, |:wq|,
@@ -301,6 +352,10 @@ view.auto_close ~
     waiting. Only quitting counts: |:close| and |:only| don't. Unsaved
     changes in hidden buffers still stop Neovim from exiting, as for any
     |:q|.
+
+view.hints ~
+    The line of key hints at the top of the split (|eunoe-hints|). `false`
+    leaves the window's 'winbar' alone.
 
 view.style ~
     `"box"`: a box around each message, open on the right, in the
@@ -324,9 +379,10 @@ view.wrap ~
                                                            *eunoe-config-keys*
 keys ~
     Keys in the split, buffer-local: `close`, `next_turn`, `prev_turn`,
-    `reload`, `quote` (Visual mode), and for the modes (|eunoe-modes|)
-    `oneline`, `expanded` and `cycle` (unset by default). `false` leaves a
-    key unmapped.
+    `reload`, `quote` (Visual mode), for the modes (|eunoe-modes|)
+    `oneline`, `expanded` and `cycle` (unset by default), `zoom`
+    (|eunoe-zoom|) and `help` (|eunoe-keys|). `false` leaves a key
+    unmapped. The hint line (|eunoe-hints|) shows your keys.
 
                                                        *eunoe-config-truncate*
 truncate ~
@@ -396,6 +452,17 @@ eunoe.mode({mode})
     Switch to `"default"`, `"oneline"` or `"expanded"` (|eunoe-modes|),
     opening the split if it is closed. Without {mode}, return the current
     mode (or, when the split is closed, the one it will open in).
+
+                                                           *eunoe.auto_open()*
+eunoe.auto_open()
+    What `view.auto_open` runs at startup: open the split if Neovim was
+    started from an agent, else do nothing. Runs once; for a plugin
+    manager that loads eunoe after startup, |eunoe.setup()| calls it.
+
+                                                                *eunoe.zoom()*
+eunoe.zoom()
+    Zoom the split, and back (|eunoe-zoom|), opening it zoomed if it is
+    closed.
 
                                                               *eunoe.status()*
 eunoe.status()
@@ -528,6 +595,21 @@ EunoeFolded             Closed folds in the eunoe window, which maps
 EunoeTruncated          The "… 1,615 more characters" line of truncated
                         text. Default: linked to `Comment`.
 
+                                                                 *EunoeWinBar*
+EunoeWinBar             The hint line (|eunoe-hints|): the window maps
+                        |hl-WinBar| and |hl-WinBarNC| to this group.
+                        Default: linked to |hl-Normal|.
+
+                                                                   *EunoeHint*
+EunoeHint               The hints' words. Default: linked to `Comment`.
+
+                                                                *EunoeHintKey*
+EunoeHintKey            The hints' keys. Default: linked to `Special`.
+
+                                                                 *EunoeHintOn*
+EunoeHintOn             The current mode and the zoom when it is on.
+                        Default: linked to |hl-Title|.
+
 ==============================================================================
 13. STATUS LINE                                                 *eunoe-status*
 
@@ -552,6 +634,7 @@ Fields: >lua
     role = "reply",          -- "prompt" or "reply"
     speaker = "Claude",      -- "You" or the agent's name
     loaded = 1794400000,     -- when the session was read (|os.time()|)
+    zoomed = false,          -- whether the split is zoomed
   }
 <
 The cursor fields follow the cursor: the event fires when the cursor moves

@@ -8,6 +8,10 @@ local config = require("eunoe.config")
 ---@param opts table?
 function M.setup(opts)
   config.setup(opts)
+  -- Set up after startup (a lazy-loaded plugin): VimEnter has passed.
+  if vim.v.vim_did_enter == 1 then
+    M.auto_open()
+  end
 end
 
 local function notify(msg, level)
@@ -42,9 +46,19 @@ end
 
 --- Find the session and read its turns.
 ---@param cb fun(session: eunoe.Session, turns: eunoe.Turn[])
-function M.load(cb)
+---@param opts { parent: boolean? }? `parent`: only a session Neovim was started from, and quiet when there's none.
+function M.load(cb, opts)
+  opts = opts or {}
   local session = require("eunoe.session")
   session.lookup(function(sessions, ctx)
+    if opts.parent then
+      sessions = vim.tbl_filter(function(s)
+        return s.via == "parent"
+      end, sessions)
+      if #sessions == 0 then
+        return
+      end
+    end
     if #sessions == 0 then
       return notify(
         ("no agent session found: none among Neovim's parent processes, none running in %s"):format(ctx.cwd),
@@ -100,7 +114,7 @@ end
 local showing_all = false
 
 --- Open (or refresh) the conversation split.
----@param opts { all: boolean? }?
+---@param opts { all: boolean?, parent: boolean?, focus: boolean? }?
 function M.open(opts)
   opts = opts or {}
   if opts.all ~= nil then
@@ -121,7 +135,9 @@ function M.open(opts)
       truncate = o.truncate,
       wrap = o.view.wrap,
       width = o.view.width,
-      focus = o.view.focus,
+      zoom = o.view.zoom,
+      hints = o.view.hints,
+      focus = opts.focus == nil and o.view.focus or opts.focus,
       auto_close = o.view.auto_close,
       bar = o.view.bar,
       style = o.view.style,
@@ -144,7 +160,20 @@ function M.open(opts)
         end,
       },
     })
-  end)
+  end, { parent = opts.parent })
+end
+
+-- Set once auto-open has run (it runs once per Neovim).
+M._auto_opened = false
+
+--- `view.auto_open`: open the split once, when Neovim was started from an
+--- agent (`Ctrl+G`); nothing otherwise. The cursor stays where it is.
+function M.auto_open()
+  if M._auto_opened or not config.options.view.auto_open then
+    return
+  end
+  M._auto_opened = true
+  M.open({ parent = true, focus = false })
 end
 
 --- The split's mode, or switch it: "default", "oneline" or "expanded".
@@ -170,6 +199,18 @@ function M.mode(name)
     M.open()
   end
   return name
+end
+
+--- Zoom the split to `view.zoom` (for long code lines), or back. Opens
+--- the split if it's closed, zoomed.
+function M.zoom()
+  local view = require("eunoe.view")
+  if view.current() then
+    view.toggle_zoom()
+  else
+    view.zoom_next = true
+    M.open()
+  end
 end
 
 --- Status data of the eunoe split in this tab page, for status lines:

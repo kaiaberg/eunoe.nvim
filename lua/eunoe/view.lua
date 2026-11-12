@@ -7,6 +7,7 @@ local M = {}
 ---@field last integer Last folded line.
 ---@field chars integer Characters hidden in the fold.
 ---@field latest boolean? Part of the newest reply.
+---@field section integer Index into `sections`.
 
 ---@class eunoe.Heading
 ---@field line integer 1-based line of the heading.
@@ -278,8 +279,13 @@ function M.render(turns, opts)
       local keep = limit and M.cut(body, limit)
       if keep then
         local hidden = table.concat(body, "\n", keep + 1)
-        out.folds[#out.folds + 1] =
-          { first = first + keep, last = first + #body - 1, chars = vim.fn.strchars(hidden), latest = latest or nil }
+        out.folds[#out.folds + 1] = {
+          first = first + keep,
+          last = first + #body - 1,
+          chars = vim.fn.strchars(hidden),
+          latest = latest or nil,
+          section = #out.sections,
+        }
       end
     end
     add("")
@@ -442,10 +448,37 @@ function M.current()
   end
 end
 
-local function width(spec)
+--- Columns of the left column: the box's side or the bar.
+local LEFT_COLS = 2
+
+--- Width of the split from `view.width`: a fraction of the editor's
+--- columns (< 1), a number of columns, or nil to fit the text (`wrap`
+--- plus the left column and a margin, 0.4 without `wrap`). At least 20
+--- columns, and 20 are left for the other windows.
+---@param spec number?
+---@param wrap integer|false|nil
+---@param left boolean? Whether there is a left column.
+---@return integer
+function M.split_width(spec, wrap, left)
+  local cols = vim.o.columns
+  local w
+  if spec == nil then
+    w = wrap and (wrap + (left and LEFT_COLS or 0) + 1) or math.floor(cols * 0.4)
+  else
+    w = spec < 1 and math.floor(cols * spec) or spec
+  end
+  return math.max(20, math.min(w, cols - 20))
+end
+
+--- Width of the zoomed split from `view.zoom`: a fraction of the editor's
+--- columns (< 1) or a number of columns, leaving the other windows a
+--- strip of at least 10 columns.
+---@param spec number
+---@return integer
+function M.zoom_width(spec)
   local cols = vim.o.columns
   local w = spec < 1 and math.floor(cols * spec) or spec
-  return math.max(20, math.min(w, cols - 20))
+  return math.max(20, math.min(w, cols - 10))
 end
 
 --- The modes are fold levels: one line per message, the default
@@ -553,6 +586,7 @@ end
 ---@field role "prompt"|"reply"? Message at the cursor.
 ---@field speaker string? Its speaker's name ("You", "Claude").
 ---@field loaded integer When the session was read (seconds since the epoch).
+---@field zoomed boolean Whether the split is zoomed.
 
 --- Status data of an eunoe buffer, computed now.
 ---@param buf integer
@@ -577,6 +611,7 @@ function M.status(buf)
     role = hd and hd.role,
     speaker = hd and st.rendered.names[hd.role],
     loaded = st.loaded,
+    zoomed = st.zoomed ~= false,
   }
 end
 
@@ -830,8 +865,11 @@ function M.left_column(win, lnum, virtnum)
   return text, st.speakers[hd.role].hl
 end
 
-local function set_win_options(win)
+local function set_win_options(win, st)
   local wo = vim.wo[win]
+  if st.hints then
+    wo.winbar = "%!v:lua.require'eunoe.view'.winbar()"
+  end
   wo.foldmethod = "manual"
   wo.foldenable = true
   wo.foldtext = "v:lua.require'eunoe.view'.foldtext()"
@@ -846,7 +884,7 @@ local function set_win_options(win)
   wo.list = false
   wo.winfixwidth = true
   wo.fillchars = "fold: ,eob: "
-  wo.winhighlight = "Folded:EunoeFolded"
+  wo.winhighlight = "Folded:EunoeFolded,WinBar:EunoeWinBar,WinBarNC:EunoeWinBar"
 end
 
 --- Jump to the next (`dir` = 1) or previous (-1) turn.
@@ -1067,6 +1105,10 @@ local function set_keymaps(buf, handlers, keys)
   map("n", "cycle", function()
     M.cycle_mode()
   end, "eunoe: next mode")
+  map("n", "zoom", function()
+    M.toggle_zoom()
+  end, "eunoe: zoom the split, and back")
+  map("n", "help", M.help, "eunoe: keys in :help")
   -- Fold-level commands change the mode without an event: run them as
   -- usual, then refresh the status.
   for _, z in ipairs({ "zR", "zM", "zr", "zm" }) do
@@ -1094,6 +1136,276 @@ local function place_cursor(win, st)
   end
 end
 
+--- Where a line is, in terms that survive rendering at another width: a
+--- message line by its source line and where its text starts there, other
+--- lines by their message (heading line, blank line after the heading,
+--- bottom) or their number.
+local function anchor(rendered, lnum, col)
+  local info = rendered.line_info[lnum]
+  if info then
+    -- The source byte at `col` (0-based), or where the line's text starts.
+    return { section = info.section, src = info.src, col = math.max(col or 0, info.skip) + info.delta + 1 }
+  end
+  for i, hd in ipairs(rendered.headings) do
+    if lnum >= hd.line and lnum <= hd.last then
+      return { heading = i, offset = lnum - hd.line, bottom = lnum == hd.last }
+    end
+  end
+  return { line = lnum }
+end
+
+--- The line (and 0-based column) of an anchor in a new rendering.
+---@return integer lnum, integer col
+local function resolve(rendered, a)
+  local n = #rendered.lines
+  if a.section then
+    local sec = rendered.sections[a.section]
+    local best, col
+    for l = sec.first, sec.last do
+      local info = rendered.line_info[l]
+      if info and info.src == a.src and (not best or info.skip + info.delta + 1 <= a.col) then
+        best, col = l, math.max(info.skip, a.col - info.delta - 1)
+      end
+    end
+    return best or sec.first, col or 0
+  elseif a.heading then
+    local hd = rendered.headings[a.heading]
+    if not hd then
+      return n
+    end
+    return a.bottom and hd.last or math.min(hd.line + a.offset, hd.last), 0
+  end
+  return math.min(a.line, n), 0
+end
+
+--- The view of the eunoe window, to restore after rendering at another
+--- width: cursor and top line, and which truncation folds are open.
+local function save_view(win, st)
+  return vim.api.nvim_win_call(win, function()
+    local view = vim.fn.winsaveview()
+    local open = {}
+    for _, f in ipairs(st.rendered.folds) do
+      -- -1: open. Inside a closed message fold it can't be told; it stays
+      -- as the mode makes it.
+      if vim.fn.foldclosed(f.first) == -1 then
+        open[f.section] = true
+      end
+    end
+    return {
+      cursor = anchor(st.rendered, view.lnum, view.col),
+      top = anchor(st.rendered, view.topline),
+      open = open,
+    }
+  end)
+end
+
+local function restore_view(win, st, saved)
+  vim.api.nvim_win_call(win, function()
+    for _, f in ipairs(st.rendered.folds) do
+      if saved.open[f.section] then
+        vim.cmd(("silent! %dfoldopen"):format(f.first))
+      end
+    end
+    local lnum, col = resolve(st.rendered, saved.cursor)
+    vim.api.nvim_win_set_cursor(win, { lnum, col })
+    vim.fn.winrestview({ topline = math.min((resolve(st.rendered, saved.top)), lnum) })
+  end)
+end
+
+--- Render the eunoe window again for its current width (after a resize
+--- or zoom), keeping the view.
+---@param win integer
+function M.rerender(win)
+  local buf = vim.api.nvim_win_get_buf(win)
+  local st = M.state[buf]
+  if not st or not st.source then
+    return
+  end
+  local opts = vim.tbl_extend("force", st.opts, { focus = false, keep_view = save_view(win, st) })
+  M.show(st.source, opts)
+end
+
+--- The wrap and box widths for a window width.
+---@return integer|false|nil wrap, integer box_width, integer avail
+local function widths(win_width, left, wrap_opt, widest)
+  local avail = math.max(1, win_width - (left and LEFT_COLS or 0) - 1)
+  if not wrap_opt then
+    return wrap_opt, avail, avail
+  end
+  local wrap = math.max(20, math.min(wrap_opt, avail))
+  return wrap, math.min(avail, math.max(wrap, widest or 0)) + 1, avail
+end
+
+--- Whether the eunoe window needs rendering again at its width: the wrap
+--- or box width would change.
+local function stale(win, st)
+  local wrap, box_width = widths(vim.api.nvim_win_get_width(win), st.left, st.opts.wrap, st.widest)
+  return wrap ~= st.wrap or box_width ~= st.box_width
+end
+
+--- After windows were resized (`WinResized`): render eunoe windows
+--- again whose wrap or box width changes. A zoomed window resized by hand
+--- is no longer zoomed.
+---@param wins integer[]
+function M.on_resized(wins)
+  for _, win in ipairs(wins) do
+    if vim.api.nvim_win_is_valid(win) then
+      local buf = vim.api.nvim_win_get_buf(win)
+      local st = M.state[buf]
+      if st then
+        if st.zoomed and vim.api.nvim_win_get_width(win) ~= st.zoomed then
+          st.zoomed = false
+          M.update_status(buf)
+        end
+        if stale(win, st) then
+          M.rerender(win)
+        end
+      end
+    end
+  end
+end
+
+local resize_set = false
+
+function M.setup_resize()
+  if resize_set then
+    return
+  end
+  resize_set = true
+  vim.api.nvim_create_autocmd("WinResized", {
+    group = vim.api.nvim_create_augroup("eunoe.resize", { clear = true }),
+    callback = function()
+      M.on_resized(vim.v.event.windows or {})
+    end,
+  })
+end
+
+--- Set by `eunoe.zoom()` to open the split zoomed.
+M.zoom_next = nil
+
+--- Zoom the eunoe window to `view.zoom` (for long code lines), or back to
+--- the width it had before.
+---@param win integer?
+function M.toggle_zoom(win)
+  win = win or M.current()
+  local st = win and M.state[vim.api.nvim_win_get_buf(win)]
+  if not st then
+    return
+  end
+  if st.zoomed then
+    st.zoomed = false
+    vim.api.nvim_win_set_width(win, st.normal_width or M.split_width(st.opts.width, st.opts.wrap, st.left))
+  else
+    st.normal_width = vim.api.nvim_win_get_width(win)
+    vim.api.nvim_win_set_width(win, M.zoom_width(st.opts.zoom or 0.9))
+    -- The zoomed width (it may be less than asked for, on a small screen).
+    st.zoomed = vim.api.nvim_win_get_width(win)
+  end
+  -- WinResized comes later; render now, so the window is right at once.
+  if stale(win, st) then
+    M.rerender(win)
+  end
+  M.update_status(vim.api.nvim_win_get_buf(win))
+end
+
+--- `:help eunoe-keys`.
+function M.help()
+  local ok = pcall(vim.cmd.help, "eunoe-keys")
+  if not ok then
+    vim.notify("eunoe: no help for eunoe-keys (run :helptags ALL)", vim.log.levels.WARN)
+  end
+end
+
+--- The hints, in order; the ones that don't fit are left out from the
+--- end. `help` goes at the right end and always stays.
+M.HINTS = {
+  {
+    keys = { "oneline" },
+    text = "one-line",
+    on = function(st, win)
+      return M.mode(win) == "oneline"
+    end,
+  },
+  {
+    keys = { "expanded" },
+    text = "expanded",
+    on = function(st, win)
+      return M.mode(win) == "expanded"
+    end,
+  },
+  {
+    keys = { "zoom" },
+    text = "zoom",
+    on = function(st)
+      return st.zoomed ~= false
+    end,
+  },
+  { keys = { "next_turn", "prev_turn" }, text = "turns" },
+  { keys = { "quote" }, text = "quote" },
+  { keys = { "cycle" }, text = "next mode" },
+  { keys = { "close" }, text = "close" },
+  { keys = { "reload" }, text = "reload" },
+}
+
+local function esc(text)
+  return (text:gsub("%%", "%%%%"))
+end
+
+--- The hint items of a window: `{ key, text, on }`, keys from the config.
+---@return { key: string, text: string, on: boolean }[] items, { key: string, text: string }? help
+function M.hint_items(st, win)
+  local items = {}
+  for _, hint in ipairs(M.HINTS) do
+    local ks = {}
+    for _, name in ipairs(hint.keys) do
+      if st.keys[name] then
+        ks[#ks + 1] = st.keys[name]
+      end
+    end
+    if #ks > 0 then
+      items[#items + 1] = { key = table.concat(ks, " "), text = hint.text, on = hint.on and hint.on(st, win) or false }
+    end
+  end
+  return items, st.keys.help and { key = st.keys.help, text = "help" } or nil
+end
+
+--- 'winbar' of the eunoe window: key hints, the current mode and zoom
+--- highlighted.
+---@return string
+function M.winbar()
+  local win = vim.g.statusline_winid
+  local st = M.state[vim.api.nvim_win_get_buf(win)]
+  if not st then
+    return ""
+  end
+  local items, help = M.hint_items(st, win)
+  local room = vim.api.nvim_win_get_width(win) - 1
+  local function w(item)
+    return width_of(item.key) + 1 + width_of(item.text)
+  end
+  if help then
+    room = room - w(help) - 2
+  end
+  local parts = {}
+  for _, item in ipairs(items) do
+    local need = w(item) + (#parts > 0 and 2 or 0)
+    if need > room then
+      break
+    end
+    room = room - need
+    local key_hl, text_hl = "EunoeHintKey", "EunoeHint"
+    if item.on then
+      key_hl, text_hl = "EunoeHintOn", "EunoeHintOn"
+    end
+    parts[#parts + 1] = ("%%#%s#%s %%#%s#%s"):format(key_hl, esc(item.key), text_hl, esc(item.text))
+  end
+  local bar = " " .. table.concat(parts, "%#EunoeHint#  ")
+  if help then
+    bar = bar .. ("%%=%%#EunoeHintKey#%s %%#EunoeHint#%s "):format(esc(help.key), esc(help.text))
+  end
+  return bar .. "%*"
+end
+
 --- Show rendered turns in the eunoe split, creating it if needed.
 ---@param turns eunoe.Turn[]
 ---@param opts { auto_close: boolean?, style: "box"|"bar"?, session: { reader: string, id: string, label: string? }?, mode: string?, name: string, total: integer?, truncate: table|false, wrap: integer|false|nil, width: number, focus: boolean, handlers: table, keys: table?, agent: string?, speakers: { prompt: eunoe.Speaker, reply: eunoe.Speaker }?, bar: string|false?, heading: eunoe.HeadingOpts? }
@@ -1103,16 +1415,16 @@ function M.show(turns, opts)
   local style = opts.style == "bar" and "bar" or "box"
   -- The left column: the box's side, or the bar (unless it's off).
   local has_bar = style == "box" or (type(opts.bar) == "string" and opts.bar ~= "")
+  local win_width = win and vim.api.nvim_win_get_width(win) or M.split_width(opts.width, opts.wrap, has_bar)
+  -- `eunoe.zoom()` with the split closed: open it zoomed.
+  local open_zoomed = not win and M.zoom_next
+  M.zoom_next = nil
+  if open_zoomed then
+    win_width = M.zoom_width(opts.zoom or 0.9)
+  end
   -- Wrap at `view.wrap`, or narrower when the window is: lines Neovim
   -- wraps again are hard to read.
-  local wrap = opts.wrap
-  if wrap then
-    local cols = (win and vim.api.nvim_win_get_width(win) or width(opts.width)) - (has_bar and 2 or 0) - 1
-    wrap = math.max(20, math.min(wrap, cols))
-  end
-  -- The box reaches one column past the widest wrapped line.
-  local box_width = wrap and (wrap + 1)
-    or ((win and vim.api.nvim_win_get_width(win) or width(opts.width)) - (has_bar and 2 or 0) - 1)
+  local wrap = widths(win_width, has_bar, opts.wrap)
   local speakers = opts.speakers or {
     prompt = { hl = "EunoeUser" },
     reply = { hl = "EunoeAgent" },
@@ -1125,6 +1437,16 @@ function M.show(turns, opts)
     heading = opts.heading,
     icons = { prompt = speakers.prompt.icon, reply = speakers.reply.icon },
   })
+  -- All boxes are as wide as the widest line (code and tables aren't
+  -- wrapped), at least `wrap` and at most the window, plus one column.
+  local widest = 0
+  for lnum in pairs(rendered.line_info) do
+    local l = rendered.lines[lnum]
+    if #l > widest or l:find("\t", 1, true) then
+      widest = math.max(widest, width_of(l))
+    end
+  end
+  local _, box_width = widths(win_width, has_bar, opts.wrap, widest)
   if not buf then
     buf = vim.api.nvim_create_buf(false, true)
     vim.bo[buf].bufhidden = "wipe"
@@ -1179,7 +1501,16 @@ function M.show(turns, opts)
     total = math.max(opts.total or 0, #turns),
     loaded = os.time(),
     wrap = wrap,
+    box_width = box_width,
+    widest = widest,
     open_latest = opts.truncate and opts.truncate.open_latest,
+    -- What a rerender needs (after a resize).
+    source = turns,
+    opts = opts,
+    zoomed = (open_zoomed and win_width) or (old and old.zoomed) or false,
+    normal_width = open_zoomed and M.split_width(opts.width, opts.wrap, has_bar) or (old and old.normal_width),
+    keys = opts.keys or require("eunoe.config").defaults.keys,
+    hints = opts.hints ~= false,
   }
   M.state[buf] = st
   M.decorate(buf, rendered, speakers, {
@@ -1187,16 +1518,24 @@ function M.show(turns, opts)
     time = (opts.heading or {}).time,
     width = box_width,
   })
-  set_keymaps(buf, opts.handlers, opts.keys or require("eunoe.config").defaults.keys)
+  set_keymaps(buf, opts.handlers, st.keys)
 
   local prev = vim.api.nvim_get_current_win()
   if not win then
-    win = vim.api.nvim_open_win(buf, false, { split = "right", win = -1, width = width(opts.width) })
+    win = vim.api.nvim_open_win(buf, false, { split = "right", win = -1, width = win_width })
     st.prev_win = prev
+    if open_zoomed then
+      st.zoomed = vim.api.nvim_win_get_width(win)
+    end
   end
-  set_win_options(win)
+  set_win_options(win, st)
   apply_folds(win, st)
-  place_cursor(win, st)
+  if opts.keep_view then
+    restore_view(win, st, opts.keep_view)
+  else
+    place_cursor(win, st)
+  end
+  M.setup_resize()
   if opts.focus then
     vim.api.nvim_set_current_win(win)
   end

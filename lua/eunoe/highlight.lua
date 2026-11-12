@@ -29,6 +29,13 @@ M.links = {
   EunoeFolded = "Normal",
   --- The "… 1,615 more characters" line of truncated text.
   EunoeTruncated = "Comment",
+  --- The hint line at the top of the split ('winbar'; the window maps
+  --- `WinBar` and `WinBarNC` to this group).
+  EunoeWinBar = "Normal",
+  --- The hints' words, keys, and the mode or zoom that's on.
+  EunoeHint = "Comment",
+  EunoeHintKey = "Special",
+  EunoeHintOn = "Title",
 }
 
 local function rgb(hex)

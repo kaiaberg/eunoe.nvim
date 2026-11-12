@@ -8,8 +8,19 @@ M.defaults = {
   turns = nil,
   view = {
     --- Width of the split: a fraction of the editor's columns (< 1) or a
-    --- number of columns.
-    width = 0.4,
+    --- number of columns. nil fits the text: `wrap` plus the left column
+    --- and a margin (0.4 when `wrap` is false).
+    width = nil,
+    --- Width of the split when zoomed (`gz`), for long code lines: a
+    --- fraction of the editor's columns (< 1) or a number of columns.
+    --- Prose still wraps at `wrap`.
+    zoom = 0.9,
+    --- Open the split when Neovim starts from an agent (`Ctrl+G` in
+    --- Claude Code). Quiet when there's no agent; the cursor stays in the
+    --- file you edit.
+    auto_open = false,
+    --- A line of key hints at the top of the split ('winbar').
+    hints = true,
     --- Move the cursor into the split when it opens. By default it stays
     --- where it was, e.g. in the prompt.
     focus = false,
@@ -73,6 +84,10 @@ M.defaults = {
     --- The next mode: one-line → default → expanded. Unset by default;
     --- e.g. "<Tab>".
     cycle = false,
+    --- Zoom the split to `view.zoom`, and back.
+    zoom = "gz",
+    --- The keys in `:help`.
+    help = "g?",
   },
   --- Long prompts and replies show their beginning; the rest goes into a
   --- closed fold. `false` turns truncation off.
@@ -120,8 +135,13 @@ local SCHEMA = {
   view = {
     fields = {
       width = opt(function(v)
+        return v == nil or (type(v) == "number" and v > 0)
+      end, "nil, a fraction below 1 or a number of columns"),
+      zoom = opt(function(v)
         return type(v) == "number" and v > 0
       end, "a fraction below 1 or a number of columns"),
+      auto_open = BOOL,
+      hints = BOOL,
       focus = BOOL,
       auto_close = BOOL,
       mode = opt(function(v)
@@ -148,6 +168,8 @@ local SCHEMA = {
       oneline = KEY,
       expanded = KEY,
       cycle = KEY,
+      zoom = KEY,
+      help = KEY,
     },
   },
   truncate = {

@@ -79,6 +79,11 @@ Claude Code opens the editor from `$VISUAL`, then `$EDITOR`, so for
 export VISUAL=nvim
 ```
 
+To open the split by itself whenever you press `Ctrl+G`, set
+`view = { auto_open = true }`. The cursor stays in the prompt, and in a
+Neovim not started from an agent nothing happens. eunoe must load at
+startup for this (with lazy.nvim, don't lazy-load it on `cmd`).
+
 Run `:checkhealth eunoe` to check the setup. It also shows which session
 eunoe finds from where you run it.
 
@@ -125,8 +130,19 @@ from it, and use your Markdown plugins.
 | `>` | Visual mode: [quote](#quoting-into-the-prompt) the selection into the prompt |
 | `o` | [One line per message](#modes-one-line-per-message-everything-open), and back |
 | `O` | Everything open, and back |
+| `gz` | Zoom the split to 90% of the screen, for long code lines, and back |
 | `R` | Reload, e.g. after the agent wrote more |
 | `q` | Close |
+| `g?` | These keys in `:help` |
+
+A line at the top of the split lists these keys, with the current mode
+and zoom highlighted. It's the window's `'winbar'`, so it stays put when
+you scroll; `view = { hints = false }` turns it off.
+
+The split is as wide as the text: 80 columns (`view.wrap`) plus the box's
+side, 83 in all. Resize it and the text wraps again to fit. Code blocks
+and tables aren't wrapped; for a long code line, `gz` zooms the split
+while prose stays at 80 columns and the boxes grow to the widest line.
 
 `:Eunoe` again closes the split. When you're done with the prompt,
 `:wq` as usual: the split closes with it and Neovim exits
@@ -231,6 +247,7 @@ quoted line is sent again.
 | `:Eunoe` | Open the split, or close it |
 | `:Eunoe all` | Open the split with every turn, also when `turns` is set |
 | `:Eunoe mode [mode]` | Switch to `default`, `oneline` or `expanded`, or show the mode |
+| `:Eunoe zoom` | Zoom the split, and back |
 | `:checkhealth eunoe` | Check the setup and the current session |
 
 ## Mappings
@@ -256,11 +273,18 @@ require("eunoe").setup({
   turns = nil,
   view = {
     -- Width of the split: a fraction of the editor's columns (< 1) or a
-    -- number of columns.
-    width = 0.4,
+    -- number of columns. nil fits the text: wrap + 3 (0.4 without wrap).
+    width = nil,
+    -- Width when zoomed (gz), for long code lines: a fraction or columns.
+    zoom = 0.9,
     -- Move the cursor into the split when it opens. By default it stays
     -- where it was, e.g. in the prompt.
     focus = false,
+    -- Open the split when Neovim starts from an agent (Ctrl+G). The
+    -- cursor stays in the prompt; without an agent nothing happens.
+    auto_open = false,
+    -- A line of key hints at the top of the split ('winbar').
+    hints = true,
     -- When you quit the last other window (:q, :wq, ZZ), close the split
     -- too, so Neovim exits and the agent gets your prompt. :close and
     -- :only don't count.
@@ -288,6 +312,8 @@ require("eunoe").setup({
     oneline = "o", -- one line per message, and back
     expanded = "O", -- everything open, and back
     cycle = false, -- the next mode, e.g. "<Tab>"
+    zoom = "gz", -- zoom the split, and back
+    help = "g?", -- the keys in :help
   },
   -- Long prompts and replies show their beginning; the rest goes into a
   -- closed fold. false turns truncation off.
@@ -349,6 +375,10 @@ overwrites a group a colorscheme or you set.
 | `EunoeOneline` | The text in one-line mode: linked to `Normal` |
 | `EunoeFolded` | Closed folds in the split (it maps `Folded` to this): linked to `Normal` |
 | `EunoeTruncated` | The "… 1,615 more characters" line: linked to `Comment` |
+| `EunoeWinBar` | The hint line (it maps `WinBar` and `WinBarNC` to this): linked to `Normal` |
+| `EunoeHint` | The hints' words: linked to `Comment` |
+| `EunoeHintKey` | The hints' keys: linked to `Special` |
+| `EunoeHintOn` | The current mode, and the zoom when it's on: linked to `Title` |
 
 ```lua
 vim.api.nvim_set_hl(0, "EunoeUser", { fg = "#7aa2f7", bold = true })
@@ -371,6 +401,7 @@ eunoe.open({ all = true })
 eunoe.close()
 eunoe.toggle()
 eunoe.mode("oneline")     -- switch modes; eunoe.mode() returns the mode
+eunoe.zoom()              -- zoom the split, and back
 
 -- The current session's turns, oldest first, for pickers and other
 -- plugins. Each turn: { n = 6, prompt = "…", reply = "…", time = "…" }.
@@ -403,6 +434,7 @@ component in lualine, heirline or a plain `'statusline'`:
   role = "reply",          -- "prompt" or "reply"
   speaker = "Claude",      -- "You" or the agent's name
   loaded = 1794400000,     -- when the session was read (os.time())
+  zoomed = false,          -- whether the split is zoomed
 }
 ```
 
