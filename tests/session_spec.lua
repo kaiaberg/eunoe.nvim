@@ -74,6 +74,43 @@ return {
     h.eq(session.alive(c, 5, nil), true, "no start time recorded")
     h.eq(session.alive(c, 6, nil), false, "dead pid")
   end,
+  ["parse_stat: field 22, also with spaces and parentheses in the name"] = function()
+    local tail = " S 1 1183950 1183950 34816 1183954 4194560 51244 0 4 0 2100 380 0 0 20 0 11 0 241398901 1234 5678"
+    h.eq(session.parse_stat("1183954 (claude)" .. tail), "241398901")
+    h.eq(session.parse_stat("1183954 (my (odd) name)" .. tail), "241398901")
+    h.eq(session.parse_stat("1183954 (claude) S 1 2"), nil, "too short")
+    h.eq(session.parse_stat("garbage"), nil)
+  end,
+  ["alive: clock ticks (Linux) are compared with /proc, or ignored without it"] = function()
+    local real = session.proc_start
+    local ok, err = pcall(function()
+      local c = { procs = { [5] = { ppid = 1, start = "Thu Nov 12 08:15:42 2026" } } }
+      session.proc_start = function(pid)
+        return pid == 5 and "241398901" or nil
+      end
+      h.eq(session.alive(c, 5, "241398901"), true, "ticks as a string")
+      h.eq(session.alive(c, 5, 241398901), true, "ticks as a number")
+      h.eq(session.alive(c, 5, "241399999"), false, "reused pid")
+      h.eq(session.alive(c, 5, "Thu Nov 12 08:15:42 2026"), true, "a date still compares with ps")
+      session.proc_start = function()
+        return nil
+      end
+      h.eq(session.alive(c, 5, "241398901"), true, "no /proc: the pid is enough")
+      h.eq(session.alive(c, 6, "241398901"), false, "no /proc, dead pid")
+    end)
+    session.proc_start = real
+    if not ok then
+      error(err, 0)
+    end
+  end,
+  ["proc_start: this Neovim's start time where /proc exists"] = function()
+    local ticks = session.proc_start(vim.fn.getpid())
+    if vim.uv.fs_stat("/proc/self/stat") then
+      h.truthy(ticks and ticks:match("^%d+$"), "got " .. tostring(ticks))
+    else
+      h.eq(ticks, nil)
+    end
+  end,
   ["context: real process table, chain starts at the parent"] = function()
     local got
     session.context(function(c)
@@ -117,6 +154,22 @@ return {
       local c = ctx({ 20, 30 }, "/work", { [20] = { ppid = 30, start = "Thu Nov 12 07:00:00 2026" } })
       h.eq(ids(claude.detect(c)), { "real" })
     end)
+  end,
+  ["detect: Linux, where procStart is clock ticks and ps prints dates"] = function()
+    local real = session.proc_start
+    session.proc_start = function(pid)
+      return pid == 20 and "241398901" or nil
+    end
+    local root = fake_root({ [20] = info(20, "linux", "/work", { procStart = "241398901" }) }, { "linux" })
+    local ok, err = pcall(with_root, root, function()
+      local found = claude.detect(ctx({ 20 }))
+      h.eq(ids(found), { "linux" })
+      h.eq(found[1].via, "parent")
+    end)
+    session.proc_start = real
+    if not ok then
+      error(err, 0)
+    end
   end,
   ["detect: by cwd when no ancestor has a sessions file"] = function()
     local root = fake_root({

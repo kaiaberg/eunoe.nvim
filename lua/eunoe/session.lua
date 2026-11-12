@@ -108,14 +108,57 @@ function M.context_sync()
   return build_context(ok and job:wait(3000) or nil)
 end
 
---- Whether `pid` is alive and, when both start times are known, the same
+--- Field 22 of a `/proc/<pid>/stat` line: the start time in clock ticks
+--- since boot. The command name (field 2) is in parentheses and may hold
+--- spaces and parentheses itself, so count from the last `)`.
+---@param line string
+---@return string?
+function M.parse_stat(line)
+  local rest = line:match("^.*%)%s+(.*)$")
+  if not rest then
+    return nil
+  end
+  local fields = vim.split(vim.trim(rest), "%s+")
+  -- `rest` starts at field 3.
+  local ticks = fields[22 - 2]
+  return ticks and ticks:match("^%d+$") and ticks or nil
+end
+
+--- A process's start time in clock ticks from `/proc` (Linux); nil
+--- without `/proc` or when the process is gone.
+---@param pid integer
+---@return string?
+function M.proc_start(pid)
+  local f = io.open(("/proc/%d/stat"):format(pid), "r")
+  if not f then
+    return nil
+  end
+  local line = f:read("*l")
+  f:close()
+  return line and M.parse_stat(line)
+end
+
+--- Whether `pid` is alive and, when its start time is known, the same
 --- process that started at `start` (guards against pid reuse after a
---- crash left a stale sessions file).
+--- crash left a stale sessions file). `start` is what the agent recorded:
+--- a date as `ps -o lstart=` prints it (macOS), or clock ticks since boot
+--- from `/proc/<pid>/stat` (Linux). A start time eunoe can't compare
+--- with is ignored.
 ---@param ctx eunoe.Context
 ---@param pid integer
----@param start string?
+---@param start string|integer?
 ---@return boolean
 function M.alive(ctx, pid, start)
+  if type(start) == "number" then
+    start = ("%d"):format(start)
+  end
+  if type(start) == "string" and start:match("^%s*%d+%s*$") then
+    local ticks = M.proc_start(pid)
+    if ticks then
+      return ticks == vim.trim(start)
+    end
+    start = nil
+  end
   if ctx.procs then
     local p = ctx.procs[pid]
     if not p then

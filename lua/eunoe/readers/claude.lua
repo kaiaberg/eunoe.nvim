@@ -298,7 +298,7 @@ local function session_of(ctx, info, pid, via)
   if not info or info.pid ~= pid or type(info.sessionId) ~= "string" or type(info.cwd) ~= "string" then
     return nil
   end
-  local start = type(info.procStart) == "string" and info.procStart or nil
+  local start = (type(info.procStart) == "string" or type(info.procStart) == "number") and info.procStart or nil
   if not require("eunoe.session").alive(ctx, pid, start) then
     return nil
   end
